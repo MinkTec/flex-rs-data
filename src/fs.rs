@@ -1,11 +1,175 @@
 use chrono::{NaiveDate, NaiveDateTime};
 use polars::export::regex::Regex;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs::{self, DirEntry, File};
 use std::path::PathBuf;
+use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::schema::OutputType;
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
+pub struct AppVersion {
+    pub major: u8,
+    pub minor: u8,
+    pub patch: u8,
+    pub build: u8,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ParseAppVersionError;
+
+impl FromStr for AppVersion {
+    type Err = ParseAppVersionError;
+
+    fn from_str(version: &str) -> Result<Self, Self::Err> {
+        let mut splits = version.split(".");
+        let major = splits
+            .next()
+            .unwrap()
+            .parse()
+            .map_err(|_| ParseAppVersionError)?;
+        let minor = splits
+            .next()
+            .unwrap()
+            .parse()
+            .map_err(|_| ParseAppVersionError)?;
+        let (patch, build) = match splits.next().unwrap().split_once("-") {
+            Some(e) => Ok(e),
+            None => Err(ParseAppVersionError),
+        }?;
+        let patch = patch.parse().map_err(|_| ParseAppVersionError)?;
+        let build = build.parse().map_err(|_| ParseAppVersionError)?;
+
+        Ok(AppVersion {
+            major,
+            minor,
+            patch,
+            build,
+        })
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
+pub struct PhoneModel {
+    pub brand: String,
+    pub model: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct ParsePhoneModelError;
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
+pub struct ParsedDir {
+    pub path: PathBuf,
+    pub uuid: Uuid,
+    pub initial_app_start: NaiveDateTime,
+    pub phone: PhoneModel,
+    pub app_version: AppVersion,
+}
+
+impl ParsedDir {}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ParseFlexDataDirNameError;
+
+impl FromStr for ParsedDir {
+    type Err = ParseFlexDataDirNameError;
+
+    fn from_str(path: &str) -> Result<ParsedDir, ParseFlexDataDirNameError> {
+        let split: Vec<String> = path
+            .split("/")
+            .last()
+            .unwrap()
+            .split("_")
+            .map(|x| x.to_string())
+            .collect();
+
+        let uuid = match Uuid::parse_str(split.iter().last().unwrap()) {
+            Ok(it) => Ok(it),
+            Err(_) => Err(ParseFlexDataDirNameError),
+        }?;
+
+        let initial_app_start = match NaiveDateTime::parse_from_str(
+            split[0..=1].join("_").split_once(".").unwrap().0,
+            "%Y-%m-%d_%H:%M:%S",
+        ) {
+            Ok(it) => Ok(it),
+            Err(e) => {
+                println!("{}", e);
+                Err(ParseFlexDataDirNameError)
+            }
+        }?;
+
+        let app_version = match AppVersion::from_str(split[4].as_str()) {
+            Ok(it) => Ok(it),
+            Err(_) => Err(ParseFlexDataDirNameError),
+        }?;
+
+        let phone = PhoneModel {
+            brand: split[2].clone(),
+            model: split[3].clone(),
+        };
+
+        Ok(ParsedDir {
+            path: path.into(),
+            uuid,
+            initial_app_start,
+            phone,
+            app_version,
+        })
+    }
+}
+
+impl TryFrom<DirEntry> for ParsedDir {
+    type Error = ParseFlexDataDirNameError;
+
+    fn try_from(value: DirEntry) -> Result<Self, Self::Error> {
+        ParsedDir::from_str(value.path().to_string().as_str())
+    }
+}
+
+impl TryFrom<&DirEntry> for ParsedDir {
+    type Error = ParseFlexDataDirNameError;
+
+    fn try_from(value: &DirEntry) -> Result<Self, Self::Error> {
+        ParsedDir::from_str(value.path().to_string().as_str())
+    }
+}
+
+pub trait ToPathBuf {
+    fn to_path_buf(&self) -> PathBuf;
+}
+
+pub trait ToPathBufVec {
+    fn to_path_buf(&self) -> Vec<PathBuf>;
+}
+
+impl ToPathBuf for DirEntry {
+    fn to_path_buf(&self) -> PathBuf {
+        self.path().into()
+    }
+}
+
+impl ToPathBufVec for Vec<DirEntry> {
+    fn to_path_buf(&self) -> Vec<PathBuf> {
+        self.iter().map(|x| x.to_path_buf()).collect()
+    }
+}
+
+pub trait GetPaths {
+    fn to_paths(self) -> Vec<PathBuf>;
+}
+
+impl<I> GetPaths for I
+where
+    I: IntoIterator<Item = ParsedDir>,
+{
+    fn to_paths(self) -> Vec<PathBuf> {
+        self.into_iter().map(|x| x.path).collect()
+    }
+}
 
 pub fn list_dirs(path: &PathBuf) -> Vec<fs::DirEntry> {
     match fs::read_dir(path) {
@@ -18,6 +182,13 @@ pub fn list_dirs(path: &PathBuf) -> Vec<fs::DirEntry> {
             vec![]
         }
     }
+}
+
+pub fn parse_subdirs(path: &PathBuf) -> Vec<ParsedDir> {
+    list_dirs(path)
+        .iter()
+        .filter_map(|x| ParsedDir::try_from(x).ok())
+        .collect()
 }
 
 pub fn list_files(path: PathBuf) -> Vec<fs::DirEntry> {
@@ -42,88 +213,40 @@ fn traverse_dirs(path: &PathBuf) -> Vec<fs::DirEntry> {
     return dirs;
 }
 
-pub fn find_uuid_folders(path: &PathBuf, uuid: &str) -> HashSet<PathBuf> {
+pub fn find_uuid_dirs<'a>(paths: &Vec<ParsedDir>, uuid: &Uuid) -> HashSet<ParsedDir> {
     HashSet::from_iter(
-        traverse_dirs(path)
+        paths
             .into_iter()
-            .filter(|x| x.file_name().to_str().unwrap_or("").contains(uuid))
-            .map(|x| x.path()),
+            .filter(|x| &x.uuid == uuid)
+            .map(|x| x.to_owned()),
     )
 }
 
-pub fn find_uuids(path: &PathBuf) -> HashSet<String> {
-    HashSet::from_iter(list_dirs(path).into_iter().map(|x| {
-        x.path()
-            .to_string()
-            .to_owned()
-            .splitn(10, "_")
-            .last()
-            .unwrap()
-            .to_string()
-    }))
+pub fn find_uuids(paths: &Vec<ParsedDir>) -> HashSet<Uuid> {
+    HashSet::from_iter(paths.iter().map(|x| x.uuid))
 }
 
-pub fn find_inital_app_start(folders: &HashSet<PathBuf>) -> Option<NaiveDate> {
-    folders
-        .into_iter()
-        .map(|x| {
-            NaiveDate::parse_from_str(
-                x.file_name()
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
-                    .to_string()
-                    .splitn(10, "/")
-                    .last()
-                    .unwrap_or("0")
-                    .split_once("_")
-                    .into_iter()
-                    .next()
-                    .unwrap_or(("0", "0"))
-                    .0,
-                "%Y-%m-%d",
-            )
-            .unwrap_or(NaiveDate::default())
-        })
+pub fn find_inital_app_start(dirs: &HashSet<ParsedDir>) -> Option<NaiveDateTime> {
+    dirs.into_iter()
+        .map(|x| x.initial_app_start)
         .reduce(|a, b| if a < b { a } else { b })
 }
 
-pub fn find_uuids_after(path: &PathBuf, date: &NaiveDate) -> HashSet<String> {
+pub fn find_uuids_after(paths: &Vec<ParsedDir>, date: &NaiveDate) -> HashSet<Uuid> {
     HashSet::from_iter(
-        list_dirs(path)
-            .into_iter()
-            .map(|x| {
-                x.path()
-                    .file_name()
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
-                    .to_string()
-                    .splitn(10, "_")
-                    .into_iter()
-                    .map(|x| x.to_owned())
-                    .collect::<Vec<String>>()
-            })
-            .filter(|split| match split.first() {
-                Some(first) => match NaiveDate::parse_from_str(first.as_str(), "%Y-%m-%d") {
-                    Ok(parsed_date) => &parsed_date >= date,
-                    Err(_) => {
-                        println!("could not parse date {}", first);
-                        false
-                    }
-                },
-                None => false,
-            })
-            .map(|splits| splits.last().unwrap().to_string()),
+        paths
+            .iter()
+            .filter(|x| date < &x.initial_app_start.date())
+            .map(|x| x.uuid),
     )
 }
 
-pub fn find_sensors(user_folders: &HashSet<PathBuf>) -> HashSet<String> {
-    find_sensor_names(get_subfolders(user_folders, OutputType::logs))
+pub fn find_sensors(user_dirs: &Vec<PathBuf>) -> HashSet<String> {
+    find_sensor_names(get_subdirs(user_dirs, OutputType::logs))
 }
 
-fn get_subfolders(user_folders: &HashSet<PathBuf>, subdir_type: OutputType) -> Vec<DirEntry> {
-    user_folders
+fn get_subdirs(user_dirs: &Vec<PathBuf>, subdir_type: OutputType) -> Vec<DirEntry> {
+    user_dirs
         .into_iter()
         .map(|dir_entry| {
             let mut path = dir_entry.clone();
@@ -134,9 +257,9 @@ fn get_subfolders(user_folders: &HashSet<PathBuf>, subdir_type: OutputType) -> V
         .collect()
 }
 
-pub fn find_first_activity(user_folders: &HashSet<PathBuf>) -> Option<NaiveDateTime> {
+pub fn find_first_activity(user_dirs: &Vec<PathBuf>) -> Option<NaiveDateTime> {
     NaiveDateTime::from_timestamp_millis(
-        get_subfolders(user_folders, OutputType::logs)
+        get_subdirs(user_dirs, OutputType::logs)
             .into_iter()
             .map(|x| path_to_begin_timestamp(&x).parse::<i64>().unwrap_or(0))
             .reduce(|a, b| a.max(b))

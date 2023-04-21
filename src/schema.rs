@@ -1,5 +1,38 @@
-use polars::prelude::{DataType, Field, Schema};
+use polars::prelude::{DataFrame, DataType, Field, Schema};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+
+use crate::series::ToVec;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ScoreDfJS {
+    pub t: Vec<Option<i64>>,
+    pub score: Vec<Option<f64>>,
+    pub posture: Vec<Option<f64>>,
+    pub movement: Vec<Option<f64>>,
+    pub activity: Vec<String>,
+}
+
+impl From<DataFrame> for ScoreDfJS {
+    fn from(df: DataFrame) -> Self {
+        ScoreDfJS {
+            t: df.column("t").to_vec(),
+            score: df.column("score").to_vec(),
+            posture: df.column("posture").to_vec(),
+            movement: df.column("movement").to_vec(),
+            activity: match df.column("activity") {
+                Ok(col) => match col.utf8() {
+                    Ok(ok) => ok
+                        .into_iter()
+                        .map(|x| x.unwrap_or("").to_string())
+                        .collect(),
+                    Err(_) => vec![],
+                },
+                Err(_) => vec![],
+            },
+        }
+    }
+}
 
 pub fn generate_flextail_schema(n: usize) -> Schema {
     let mut fields: Vec<Field> = vec![];

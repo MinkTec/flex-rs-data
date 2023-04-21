@@ -16,10 +16,3 @@ fn gen_sensor_names(n: usize) -> Vec<String> {
     .flat_map(|x| x).collect()
 }
 
-fn columns_to_angles(m : Expr) {
-    
-
-}
-
-pub fn calc_alpha_and_beta(df: &mut DataFrame) {
-}

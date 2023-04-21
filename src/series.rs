@@ -9,6 +9,67 @@ pub trait ToSeries {
     fn to_series(&self) -> Series;
 }
 
+pub trait ToVec<T> {
+    fn to_vec(&self) -> Vec<Option<T>>;
+}
+
+impl ToVec<i32> for Series {
+    fn to_vec(&self) -> Vec<Option<i32>> {
+        match self.i32() {
+            Ok(ok) => ok.to_vec(),
+            Err(_) => vec![],
+        }
+    }
+}
+
+impl ToVec<i64> for Series {
+    fn to_vec(&self) -> Vec<Option<i64>> {
+        match self.i64() {
+            Ok(ok) => ok.to_vec(),
+            Err(_) => match self.datetime() {
+                Ok(ok) => ok.into_iter().map(|x| x.into()).collect(),
+                Err(_) => vec![],
+            },
+        }
+    }
+}
+
+impl ToVec<f64> for Series {
+    fn to_vec(&self) -> Vec<Option<f64>> {
+        match self.f64() {
+            Ok(ok) => ok.to_vec(),
+            Err(_) => vec![],
+        }
+    }
+}
+
+impl ToVec<i32> for PolarsResult<&Series> {
+    fn to_vec(&self) -> Vec<Option<i32>> {
+        match self {
+            Ok(series) => series.to_vec(),
+            _ => vec![],
+        }
+    }
+}
+
+impl ToVec<f64> for PolarsResult<&Series> {
+    fn to_vec(&self) -> Vec<Option<f64>> {
+        match self {
+            Ok(series) => series.to_vec(),
+            _ => vec![],
+        }
+    }
+}
+
+impl ToVec<i64> for PolarsResult<&Series> {
+    fn to_vec(&self) -> Vec<Option<i64>> {
+        match self {
+            Ok(series) => series.to_vec(),
+            _ => vec![],
+        }
+    }
+}
+
 // converts to time (expects unix timestamps)
 impl ToSeries for Vec<&Option<i64>> {
     fn to_series(&self) -> Series {

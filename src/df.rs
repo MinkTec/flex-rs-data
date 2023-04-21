@@ -4,15 +4,18 @@ use flex_rs_core::measurement::{Measurement, SensorPosition};
 use polars::prelude::*;
 
 use flex_rs_core;
+use uuid::Uuid;
 
 use std::fs::{self, DirEntry, File};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use crate::fs::{concat_csv_files, filter_files_by_date, find_uuid_folders, list_files};
+use crate::fs::{
+    concat_csv_files, filter_files_by_date, find_uuid_dirs, list_files, parse_subdirs,
+};
 use crate::misc::{get_num_of_sensors_from_file, infer_df_type, infer_file_type, is_new_schema};
-use crate::schema::{generate_flextail_schema, generate_points_schema, OutputType};
+use crate::schema::{generate_flextail_schema, generate_points_schema, OutputType, ScoreDfJS};
 use crate::series::ToSeries;
 
 enum TableFormat {
@@ -23,6 +26,59 @@ enum TableFormat {
 
 #[derive(Debug, PartialEq, Eq)]
 struct ParseOutputFormatError;
+
+#[derive(Debug)]
+pub struct ScoreDf(DataFrame);
+
+impl ScoreDf {
+    pub fn new(df: DataFrame) -> ScoreDf {
+        ScoreDf(df)
+    }
+
+    fn get_unique_days(&self) -> Series {
+        self.0
+            .column("t")
+            .expect("no t column found in groupby day")
+            .cast(&DataType::Date)
+            .expect("failed to cast datetime to date")
+            .unique()
+            .unwrap()
+    }
+
+    pub fn get_days(&mut self) -> Vec<Result<DataFrame, PolarsError>> {
+        self.convert_t_to_time();
+        self.0
+            .sort_in_place(["t"], false)
+            .expect("could not sort frame");
+
+        self.0
+            .groupby_with_series(
+                vec![self.0.column("t").unwrap().cast(&DataType::Date).unwrap()],
+                true,
+                true,
+            )
+            .expect("could no group")
+            .groups()
+            .expect("could no get groups")
+            .column("groups")
+            .unwrap()
+            .list()
+            .unwrap()
+            .into_iter()
+            .map(|x| self.0.take(x.unwrap().u32().unwrap()))
+            .collect()
+    }
+
+    fn convert_t_to_time(&mut self) {
+        if let Some(df) = convert_i64_to_time(&mut self.0, Some("t")) {
+            self.0 = df;
+        }
+    }
+
+    fn to_js(self) -> ScoreDfJS {
+        ScoreDfJS::from(self.0)
+    }
+}
 
 impl FromStr for TableFormat {
     type Err = ParseOutputFormatError;
@@ -127,14 +183,25 @@ pub fn read_input_file_into_df(path: PathBuf) -> Option<DataFrame> {
     }
 }
 
-pub fn create_user_df<'a>(
+pub fn create_df_from_uuid(
     path: &PathBuf,
-    uuid: &String,
+    uuid: &Uuid,
     output_type: OutputType,
     date: Option<NaiveDate>,
 ) -> Option<DataFrame> {
-    let folders = find_uuid_folders(path, uuid);
+    let folders = find_uuid_dirs(&parse_subdirs(&path), uuid);
+    create_user_df(
+        &folders.into_iter().map(|x| x.path).collect(),
+        output_type,
+        date,
+    )
+}
 
+pub fn create_user_df<'a>(
+    folders: &Vec<PathBuf>,
+    output_type: OutputType,
+    date: Option<NaiveDate>,
+) -> Option<DataFrame> {
     let mut files: Vec<DirEntry> = folders
         .iter()
         .map(|x| {
@@ -145,18 +212,9 @@ pub fn create_user_df<'a>(
         .flatten()
         .collect();
 
-    let pre_filter_len = files.len();
-
     if date.is_some() {
         files = filter_files_by_date(files, date.unwrap())
     }
-
-    println!(
-        "found {} folders containing {} files, keeping {} after date filter",
-        folders.len(),
-        pre_filter_len,
-        files.len(),
-    );
 
     let new_path = concat_csv_files(files);
     let df = read_csv_file(&new_path, output_type);
@@ -242,6 +300,15 @@ pub fn read_points_csv(path: &PathBuf) -> Option<DataFrame> {
     }
 }
 
+pub fn read_logs_csv(path: &PathBuf) -> Option<DataFrame> {
+    let reader = CsvReader::from_path(path)
+        .unwrap()
+        .with_ignore_errors(true)
+        .infer_schema(Some(10))
+        .has_header(false);
+    reader.finish().ok()
+}
+
 pub fn read_raw_csv(path: &PathBuf) -> Option<DataFrame> {
     let schema = Some(generate_flextail_schema(get_num_of_sensors_from_file(
         &path,
@@ -255,7 +322,7 @@ pub fn read_raw_csv(path: &PathBuf) -> Option<DataFrame> {
 
     match reader.has_header(false).finish().as_mut() {
         Ok(e) => {
-            println!("{}", e);
+            //println!("{}", e);
             convert_i64_to_time(e, None)
         }
         Err(err) => {
@@ -269,6 +336,31 @@ fn read_csv_file(file: &PathBuf, output_type: OutputType) -> Option<DataFrame> {
     match output_type {
         OutputType::points => read_points_csv(file),
         OutputType::raw => read_raw_csv(file),
-        OutputType::logs => todo!(),
+        OutputType::logs => read_logs_csv(file),
     }
+}
+
+pub fn df_column_to_data_point(
+    df: DataFrame,
+    time_col: &str,
+    value_col: &str,
+) -> (Vec<i64>, Vec<f64>) {
+    (
+        df.column(time_col)
+            .unwrap()
+            .i64()
+            .expect("could not unwrap datetime")
+            .to_vec()
+            .into_iter()
+            .map(|x| x.unwrap())
+            .collect(),
+        df.column(value_col)
+            .unwrap()
+            .f64()
+            .expect("could not unwrap f64")
+            .to_vec()
+            .into_iter()
+            .map(|x| x.unwrap())
+            .collect(),
+    )
 }

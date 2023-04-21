@@ -7,6 +7,15 @@ use polars::prelude::DataFrame;
 
 use crate::schema::OutputType;
 
+pub fn read_first_line(path: &PathBuf) -> String {
+    let f = std::fs::File::open(path).unwrap();
+    let mut buf = String::new();
+    BufReader::new(f)
+        .read_line(&mut buf)
+        .expect("could not read first line");
+    buf
+}
+
 pub fn get_number_of_csv_fields(path: &PathBuf) -> usize {
     let f = std::fs::File::open(path).unwrap();
     let mut buf = String::new();
@@ -17,7 +26,12 @@ pub fn get_number_of_csv_fields(path: &PathBuf) -> usize {
 }
 
 pub fn get_num_of_sensors_from_file(dir: &PathBuf) -> usize {
-    (get_number_of_csv_fields(dir) - 7) / 2
+    let n = get_number_of_csv_fields(dir);
+    if n >= 7 {
+        (n - 7) / 2
+    } else {
+        0
+    }
 }
 
 pub fn infer_file_type(path: &PathBuf) -> OutputType {
