@@ -1,6 +1,6 @@
 use std::{
     io::{BufRead, BufReader},
-    path::PathBuf,
+    path::PathBuf, time::SystemTime,
 };
 
 use polars::prelude::DataFrame;
@@ -36,7 +36,6 @@ pub fn get_num_of_sensors_from_file(dir: &PathBuf) -> usize {
 
 pub fn infer_file_type(path: &PathBuf) -> OutputType {
     let n = get_number_of_csv_fields(path);
-    println!("number of fields: {}", n);
     match n {
         5 => OutputType::points,
         10.. => OutputType::raw,
@@ -58,3 +57,13 @@ pub fn infer_df_type(df: &DataFrame) -> OutputType {
 pub fn is_new_schema(df: &DataFrame) -> bool {
     df.schema().contains("left")
 }
+
+pub fn timeit<F: Fn() -> T, T>(f: F) -> T {
+  let start = SystemTime::now();
+  let result = f();
+  let end = SystemTime::now();
+  let duration = end.duration_since(start).unwrap();
+  println!("it took {} ms", duration.as_millis());
+  result
+}
+

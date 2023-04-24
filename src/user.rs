@@ -1,4 +1,10 @@
-use std::{collections::HashSet, path::PathBuf};
+pub mod daily_activities;
+pub mod metadata;
+
+use crate::{fs::list_files, misc::timeit, user::daily_activities::DailyActivities};
+use anyhow::Result;
+
+use std::{cell::RefCell, collections::HashSet, fs::DirEntry, path::PathBuf};
 
 use chrono::{NaiveDate, NaiveDateTime};
 use polars::prelude::DataFrame;
@@ -8,12 +14,13 @@ use uuid::Uuid;
 use crate::{
     df::{create_user_df, ScoreDf},
     fs::{
-        find_inital_app_start, find_sensors, find_uuid_dirs, find_uuids_after, list_files,
-        parse_subdirs, GetPaths, ParsedDir,
+        find_inital_app_start, find_sensors, find_uuid_dirs, find_uuids_after, parse_subdirs,
+        GetPaths, ParsedDir,
     },
-    misc::read_first_line,
     schema::OutputType,
 };
+
+use self::metadata::UserMetadata;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimedData<T> {
@@ -24,9 +31,8 @@ pub struct TimedData<T> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
     pub id: Uuid,
-    pub sensors: HashSet<String>,
-    pub active_since: Option<NaiveDateTime>,
     pub dirs: HashSet<ParsedDir>,
+    pub metadata: RefCell<UserMetadata>,
 }
 
 pub fn gen_users(path: &PathBuf, start_from: Option<NaiveDate>) -> Vec<User> {
@@ -43,9 +49,8 @@ impl User {
     pub fn new(uuid: Uuid) -> User {
         User {
             id: uuid,
-            sensors: HashSet::new(),
-            active_since: None,
             dirs: HashSet::new(),
+            metadata: RefCell::new(UserMetadata::new()),
         }
     }
 
@@ -53,26 +58,36 @@ impl User {
         let dirs = find_uuid_dirs(&paths, &uuid);
         User {
             id: uuid,
-            sensors: find_sensors(&dirs.clone().to_paths()),
-            active_since: dirs.iter().map(|x| x.initial_app_start).reduce(|a, b| {
-                if a < b {
-                    a
-                } else {
-                    b
-                }
-            }),
-            dirs: HashSet::from_iter(dirs),
+            dirs: HashSet::from_iter(dirs.clone()),
+            metadata: RefCell::new(
+                UserMetadata::new()
+                    .with_sensors(find_sensors(&dirs.clone().to_paths()))
+                    .with_active_since(dirs.iter().map(|x| x.initial_app_start).reduce(|a, b| {
+                        if a < b {
+                            a
+                        } else {
+                            b
+                        }
+                    })),
+            ),
         }
     }
 
     pub fn fill_user(&mut self, paths: &Vec<ParsedDir>) {
         self.dirs = HashSet::from(find_uuid_dirs(&paths, &self.id));
-        self.active_since = find_inital_app_start(&self.dirs);
-        self.sensors = find_sensors(&self.dirs.clone().to_paths());
+        let mut m = self.metadata.borrow_mut();
+        m.initial_app_start = find_inital_app_start(&self.dirs);
+        m.sensors = find_sensors(&self.dirs.clone().to_paths());
+        if let Some(dir) = self.dirs.iter().next() {
+            m.phone = Some(dir.phone.clone());
+            m.app_version = Some(dir.app_version.clone());
+        };
+        m.activities = Some(DailyActivities::from(self.dirs.clone()));
     }
 
     pub fn get_df(&self, output_type: OutputType, date: Option<NaiveDate>) -> Option<DataFrame> {
-        create_user_df(&self.dirs.clone().to_paths(), output_type, date)
+        println!("creating user df");
+        timeit(|| create_user_df(&self.dirs.clone().to_paths(), output_type.clone(), date))
     }
 
     pub fn get_score_df(&self) -> Option<ScoreDf> {
@@ -82,29 +97,72 @@ impl User {
         }
     }
 
-    pub fn get_daily_activities(&self) -> Vec<TimedData<String>> {
+    fn get_feedback(&self) -> Vec<DirEntry> {
         self.dirs
             .clone()
-            .into_iter()
+            .to_paths()
+            .iter()
             .map(|x| {
-                let mut path = x.path;
-                path.push("dailyActivity");
-                list_files(path).into_iter().map(|file| TimedData {
-                    time: NaiveDateTime::parse_from_str(
-                        file.file_name()
-                            .to_str()
-                            .unwrap()
-                            .split_once(".")
-                            .unwrap()
-                            .0,
-                        "%Y-%m-%d %H:%M:%S",
-                    )
-                    .unwrap(),
-                    data: read_first_line(&file.path()),
-                })
+                let mut x = x.clone();
+                x.push("feedback");
+                list_files(x)
             })
             .flatten()
             .collect()
+    }
+
+    pub fn get_rectify_feedback(&self) -> Option<String> {
+        /*
+        self.get_feedback().iter().filter(|x| {
+            x.file_name()
+                .to_str()
+                .expect("could not unwrap filename")
+                .to_string()
+                .contains("rectify_")
+        })
+        */
+        todo!()
+    }
+
+    pub fn get_backpain_feedback(&self) -> Option<String> {
+        todo!()
+    }
+
+    pub fn get_daily_activities(&self) -> DailyActivities {
+        self.metadata
+            .borrow()
+            .clone()
+            .activities
+            .unwrap_or(DailyActivities::from(self.dirs.clone()))
+    }
+
+    pub fn set_metadata(&self) -> Result<()> {
+        let mut m = self.metadata.try_borrow_mut()?;
+        if m.sensors.len() == 0 {
+            m.sensors = find_sensors(&self.dirs.clone().to_paths())
+        }
+
+        m.phone = match m.phone.clone() {
+            Some(phone) => Some(phone),
+            _ => match self.dirs.iter().next() {
+                Some(dir) => Some(dir.phone.clone()),
+                _ => None,
+            },
+        };
+
+        m.app_version = match m.app_version.clone() {
+            Some(app_version) => Some(app_version),
+            _ => match self.dirs.iter().next() {
+                Some(dir) => Some(dir.app_version.clone()),
+                _ => None,
+            },
+        };
+
+        m.activities = Some(self.get_daily_activities());
+
+        //m.active_since = Some()
+
+        Ok(())
     }
 
     pub fn get_activity_blocks(&self) -> Vec<(i64, i64)> {

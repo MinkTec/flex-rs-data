@@ -35,7 +35,7 @@ impl ScoreDf {
         ScoreDf(df)
     }
 
-    fn get_unique_days(&self) -> Series {
+    fn _get_unique_days(&self) -> Series {
         self.0
             .column("t")
             .expect("no t column found in groupby day")
@@ -216,6 +216,7 @@ pub fn create_user_df<'a>(
         files = filter_files_by_date(files, date.unwrap())
     }
 
+    println!("cat files");
     let new_path = concat_csv_files(files);
     let df = read_csv_file(&new_path, output_type);
     fs::remove_file(new_path).expect("could not delete file");
