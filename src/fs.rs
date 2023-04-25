@@ -10,12 +10,7 @@ use uuid::Uuid;
 use crate::schema::OutputType;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
-pub struct AppVersion {
-    pub major: u8,
-    pub minor: u8,
-    pub patch: u8,
-    pub build: u8,
-}
+pub struct AppVersion(usize, usize, usize, usize);
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParseAppVersionError;
@@ -42,12 +37,7 @@ impl FromStr for AppVersion {
         let patch = patch.parse().map_err(|_| ParseAppVersionError)?;
         let build = build.parse().map_err(|_| ParseAppVersionError)?;
 
-        Ok(AppVersion {
-            major,
-            minor,
-            patch,
-            build,
-        })
+        Ok(AppVersion(major, minor, patch, build))
     }
 }
 
@@ -68,8 +58,6 @@ pub struct ParsedDir {
     pub phone: PhoneModel,
     pub app_version: AppVersion,
 }
-
-impl ParsedDir {}
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParseFlexDataDirNameError;
@@ -96,9 +84,7 @@ impl FromStr for ParsedDir {
             "%Y-%m-%d_%H:%M:%S",
         ) {
             Ok(it) => Ok(it),
-            Err(e) => {
-                Err(ParseFlexDataDirNameError)
-            }
+            _ => Err(ParseFlexDataDirNameError),
         }?;
 
         let app_version = match AppVersion::from_str(split[4].as_str()) {
@@ -167,6 +153,23 @@ where
 {
     fn to_paths(self) -> Vec<PathBuf> {
         self.into_iter().map(|x| x.path).collect()
+    }
+}
+
+pub trait MatchStringPattern {
+    fn filter_pattern(self, pattern: &str) -> Self;
+}
+
+impl MatchStringPattern for Vec<DirEntry> {
+    fn filter_pattern(self, pattern: &str) -> Self {
+        self.into_iter()
+            .filter(|x| {
+                x.file_name()
+                    .to_str()
+                    .expect("coult not unwrap filename")
+                    .contains(pattern)
+            })
+            .collect()
     }
 }
 

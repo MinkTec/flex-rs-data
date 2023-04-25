@@ -2,7 +2,7 @@ use polars::prelude::{DataFrame, DataType, Field, Schema};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-use crate::series::ToVec;
+use crate::{df::ScoreDf, series::ToVec};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ScoreDfJS {

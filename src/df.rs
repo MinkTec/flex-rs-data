@@ -1,7 +1,9 @@
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveDateTime};
 use flex_rs_core::dht::CartesianCoordinates;
 use flex_rs_core::measurement::{Measurement, SensorPosition};
 use polars::prelude::*;
+use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 use flex_rs_core;
 use uuid::Uuid;
@@ -16,7 +18,7 @@ use crate::fs::{
 };
 use crate::misc::{get_num_of_sensors_from_file, infer_df_type, infer_file_type, is_new_schema};
 use crate::schema::{generate_flextail_schema, generate_points_schema, OutputType, ScoreDfJS};
-use crate::series::ToSeries;
+use crate::series::{ToSeries, ToVec};
 
 enum TableFormat {
     Csv,
@@ -45,7 +47,7 @@ impl ScoreDf {
             .unwrap()
     }
 
-    pub fn get_days(&mut self) -> Vec<Result<DataFrame, PolarsError>> {
+    pub fn get_days(&mut self) -> Vec<Result<ScoreDf, PolarsError>> {
         self.convert_t_to_time();
         self.0
             .sort_in_place(["t"], false)
@@ -65,7 +67,10 @@ impl ScoreDf {
             .list()
             .unwrap()
             .into_iter()
-            .map(|x| self.0.take(x.unwrap().u32().unwrap()))
+            .map(|x| match self.0.take(x.unwrap().u32().unwrap()) {
+                Ok(df) => Ok(ScoreDf(df)),
+                Err(e) => Err(e),
+            })
             .collect()
     }
 
@@ -75,8 +80,58 @@ impl ScoreDf {
         }
     }
 
-    fn to_js(self) -> ScoreDfJS {
+    pub fn to_js(self) -> ScoreDfJS {
         ScoreDfJS::from(self.0)
+    }
+
+    fn summary(self) -> ScoreDfSummary {
+        let col = self.0.column("score").unwrap();
+
+        ScoreDfSummary {
+            average_score: col.mean().unwrap_or(50.0),
+            duration: col.len() as u32,
+            max: col.max().unwrap_or(0.0),
+            min: col.min().unwrap_or(0.0),
+        }
+    }
+
+    fn score(&self) -> Vec<Option<f64>> {
+        self.0.column("score").to_vec()
+    }
+
+    pub fn begin_and_end(&self) -> (NaiveDateTime, NaiveDateTime) {
+        let col = self.0.column("t").unwrap();
+        (
+            NaiveDateTime::from_timestamp_millis(col.min().unwrap()).unwrap(),
+            NaiveDateTime::from_timestamp_millis(col.max().unwrap()).unwrap(),
+        )
+    }
+
+    fn time(&self) -> Vec<Option<NaiveDateTime>> {
+        self.0
+            .column("t")
+            .to_vec()
+            .into_iter()
+            .map(|x| match x {
+                Some(x) => NaiveDateTime::from_timestamp_millis(x),
+                None => None,
+            })
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScoreDfSummary {
+    pub average_score: f64,
+    // in seconds
+    pub duration: u32,
+    pub min: f64,
+    pub max: f64,
+}
+
+impl Into<ScoreDfSummary> for ScoreDf {
+    fn into(self) -> ScoreDfSummary {
+        self.summary()
     }
 }
 

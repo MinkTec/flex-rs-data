@@ -1,10 +1,21 @@
 pub mod daily_activities;
+pub mod feedback;
 pub mod metadata;
 
-use crate::{fs::list_files, misc::timeit, user::daily_activities::DailyActivities};
+use crate::{
+    df::ScoreDfSummary,
+    fs::{list_files, MatchStringPattern},
+    misc::timeit,
+    user::daily_activities::DailyActivities,
+};
 use anyhow::Result;
 
-use std::{cell::RefCell, collections::HashSet, fs::DirEntry, path::PathBuf};
+use std::{
+    cell::RefCell,
+    collections::HashSet,
+    fs::{read_to_string, DirEntry},
+    path::PathBuf,
+};
 
 use chrono::{NaiveDate, NaiveDateTime};
 use polars::prelude::DataFrame;
@@ -20,7 +31,19 @@ use crate::{
     schema::OutputType,
 };
 
-use self::metadata::UserMetadata;
+use self::{feedback::FeedbackType, metadata::UserMetadata};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserScoreSummary {
+    pub overall_summary: ScoreDfSummary,
+    pub daily_summaries: Vec<SpanningData<ScoreDfSummary>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpanningData<T> {
+    pub span: (NaiveDateTime, NaiveDateTime),
+    pub data: T,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimedData<T> {
@@ -73,6 +96,28 @@ impl User {
         }
     }
 
+    pub fn gen_summary(&self) -> Option<UserScoreSummary> {
+        if let Some(mut df) = self.get_score_df() {
+            let days = df.get_days();
+
+            Some(UserScoreSummary {
+                overall_summary: df.into(),
+                daily_summaries: days
+                    .into_iter()
+                    .filter_map(|x| match x {
+                        Ok(x) => Some(SpanningData {
+                            span: x.begin_and_end(),
+                            data: x.into(),
+                        }),
+                        Err(_) => None,
+                    })
+                    .collect(),
+            })
+        } else {
+            None
+        }
+    }
+
     pub fn fill_user(&mut self, paths: &Vec<ParsedDir>) {
         self.dirs = HashSet::from(find_uuid_dirs(&paths, &self.id));
         let mut m = self.metadata.borrow_mut();
@@ -97,8 +142,9 @@ impl User {
         }
     }
 
-    fn get_feedback(&self) -> Vec<DirEntry> {
-        self.dirs
+    pub fn get_feedback(&self, feedback_type: FeedbackType) -> Option<String> {
+        let mut candidates = self
+            .dirs
             .clone()
             .to_paths()
             .iter()
@@ -108,24 +154,15 @@ impl User {
                 list_files(x)
             })
             .flatten()
-            .collect()
-    }
+            .collect::<Vec<DirEntry>>()
+            .filter_pattern(feedback_type.matcher());
 
-    pub fn get_rectify_feedback(&self) -> Option<String> {
-        /*
-        self.get_feedback().iter().filter(|x| {
-            x.file_name()
-                .to_str()
-                .expect("could not unwrap filename")
-                .to_string()
-                .contains("rectify_")
-        })
-        */
-        todo!()
-    }
+        candidates.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
 
-    pub fn get_backpain_feedback(&self) -> Option<String> {
-        todo!()
+        match candidates.last() {
+            Some(e) => read_to_string(e.path()).ok(),
+            _ => None,
+        }
     }
 
     pub fn get_daily_activities(&self) -> DailyActivities {
