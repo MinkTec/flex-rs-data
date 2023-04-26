@@ -267,7 +267,7 @@ pub fn find_first_activity(user_dirs: &Vec<PathBuf>) -> Option<NaiveDateTime> {
     )
 }
 
-fn find_sensor_names(files: Vec<DirEntry>) -> HashSet<String> {
+pub fn find_sensor_names(files: Vec<DirEntry>) -> HashSet<String> {
     let sensor_regex = Regex::new(r"FT[(A-F|0-9)]{3}").unwrap();
     let mut set: HashSet<String> = HashSet::new();
     for entry in files.into_iter() {
