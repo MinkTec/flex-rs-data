@@ -123,7 +123,7 @@ impl User {
         let mut m = self.metadata.borrow_mut();
         m.initial_app_start = find_inital_app_start(&self.dirs);
         m.sensors = find_sensors(&self.dirs.clone().to_paths());
-        if let Some(dir) = self.dirs.iter().next() {
+        if let Some(dir) = self.dirs.iter().last() {
             m.phone = Some(dir.phone.clone());
             m.app_version = Some(dir.app_version.clone());
         };
