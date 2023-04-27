@@ -1,8 +1,10 @@
 use std::{
     io::{BufRead, BufReader},
-    path::PathBuf, time::SystemTime,
+    path::PathBuf,
+    time::SystemTime,
 };
 
+use chrono::NaiveDateTime;
 use polars::prelude::DataFrame;
 
 use crate::schema::OutputType;
@@ -59,11 +61,14 @@ pub fn is_new_schema(df: &DataFrame) -> bool {
 }
 
 pub fn timeit<F: Fn() -> T, T>(f: F) -> T {
-  let start = SystemTime::now();
-  let result = f();
-  let end = SystemTime::now();
-  let duration = end.duration_since(start).unwrap();
-  println!("it took {} ms", duration.as_millis());
-  result
+    let start = SystemTime::now();
+    let result = f();
+    let end = SystemTime::now();
+    let duration = end.duration_since(start).unwrap();
+    println!("took {} ms", duration.as_millis());
+    result
 }
 
+pub fn parse_dart_timestring(s: &str) -> Result<NaiveDateTime, chrono::ParseError> {
+    NaiveDateTime::parse_from_str(s.split_once(".").unwrap().0, "%Y-%m-%d %H:%M:%S")
+}

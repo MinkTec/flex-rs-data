@@ -5,4 +5,6 @@ pub mod schema;
 pub mod evaluation;
 pub mod series;
 pub mod user;
+pub mod logs;
+pub mod feedback;
 mod grep_wrapper;

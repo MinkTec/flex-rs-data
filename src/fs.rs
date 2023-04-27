@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use uuid::Uuid;
 
+use crate::misc::parse_dart_timestring;
 use crate::schema::OutputType;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
@@ -79,10 +80,7 @@ impl FromStr for ParsedDir {
             Err(_) => Err(ParseFlexDataDirNameError),
         }?;
 
-        let initial_app_start = match NaiveDateTime::parse_from_str(
-            split[0..=1].join("_").split_once(".").unwrap().0,
-            "%Y-%m-%d_%H:%M:%S",
-        ) {
+        let initial_app_start = match parse_dart_timestring(split[0..=1].join(" ").as_str()) {
             Ok(it) => Ok(it),
             _ => Err(ParseFlexDataDirNameError),
         }?;
@@ -247,7 +245,7 @@ pub fn find_sensors(user_dirs: &Vec<PathBuf>) -> HashSet<String> {
     find_sensor_names(get_subdirs(user_dirs, OutputType::logs))
 }
 
-fn get_subdirs(user_dirs: &Vec<PathBuf>, subdir_type: OutputType) -> Vec<DirEntry> {
+pub fn get_subdirs(user_dirs: &Vec<PathBuf>, subdir_type: OutputType) -> Vec<DirEntry> {
     user_dirs
         .into_iter()
         .map(|dir_entry| {

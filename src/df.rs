@@ -1,9 +1,8 @@
-use chrono::{NaiveDate, NaiveDateTime};
+pub mod score;
+use chrono::NaiveDate;
 use flex_rs_core::dht::CartesianCoordinates;
 use flex_rs_core::measurement::{Measurement, SensorPosition};
 use polars::prelude::*;
-use serde::{Deserialize, Serialize};
-use std::time::Duration;
 
 use flex_rs_core;
 use uuid::Uuid;
@@ -17,8 +16,8 @@ use crate::fs::{
     concat_csv_files, filter_files_by_date, find_uuid_dirs, list_files, parse_subdirs,
 };
 use crate::misc::{get_num_of_sensors_from_file, infer_df_type, infer_file_type, is_new_schema};
-use crate::schema::{generate_flextail_schema, generate_points_schema, OutputType, ScoreDfJS};
-use crate::series::{ToSeries, ToVec};
+use crate::schema::{generate_flextail_schema, generate_points_schema, OutputType};
+use crate::series::ToSeries;
 
 enum TableFormat {
     Csv,
@@ -28,112 +27,6 @@ enum TableFormat {
 
 #[derive(Debug, PartialEq, Eq)]
 struct ParseOutputFormatError;
-
-#[derive(Debug)]
-pub struct ScoreDf(DataFrame);
-
-impl ScoreDf {
-    pub fn new(df: DataFrame) -> ScoreDf {
-        ScoreDf(df)
-    }
-
-    fn _get_unique_days(&self) -> Series {
-        self.0
-            .column("t")
-            .expect("no t column found in groupby day")
-            .cast(&DataType::Date)
-            .expect("failed to cast datetime to date")
-            .unique()
-            .unwrap()
-    }
-
-    pub fn get_days(&mut self) -> Vec<Result<ScoreDf, PolarsError>> {
-        self.convert_t_to_time();
-        self.0
-            .sort_in_place(["t"], false)
-            .expect("could not sort frame");
-
-        self.0
-            .groupby_with_series(
-                vec![self.0.column("t").unwrap().cast(&DataType::Date).unwrap()],
-                true,
-                true,
-            )
-            .expect("could no group")
-            .groups()
-            .expect("could no get groups")
-            .column("groups")
-            .unwrap()
-            .list()
-            .unwrap()
-            .into_iter()
-            .map(|x| match self.0.take(x.unwrap().u32().unwrap()) {
-                Ok(df) => Ok(ScoreDf(df)),
-                Err(e) => Err(e),
-            })
-            .collect()
-    }
-
-    fn convert_t_to_time(&mut self) {
-        if let Some(df) = convert_i64_to_time(&mut self.0, Some("t")) {
-            self.0 = df;
-        }
-    }
-
-    pub fn to_js(self) -> ScoreDfJS {
-        ScoreDfJS::from(self.0)
-    }
-
-    fn summary(self) -> ScoreDfSummary {
-        let col = self.0.column("score").unwrap();
-
-        ScoreDfSummary {
-            average_score: col.mean().unwrap_or(50.0),
-            duration: col.len() as u32,
-            max: col.max().unwrap_or(0.0),
-            min: col.min().unwrap_or(0.0),
-        }
-    }
-
-    fn score(&self) -> Vec<Option<f64>> {
-        self.0.column("score").to_vec()
-    }
-
-    pub fn begin_and_end(&self) -> (NaiveDateTime, NaiveDateTime) {
-        let col = self.0.column("t").unwrap();
-        (
-            NaiveDateTime::from_timestamp_millis(col.min().unwrap()).unwrap(),
-            NaiveDateTime::from_timestamp_millis(col.max().unwrap()).unwrap(),
-        )
-    }
-
-    fn time(&self) -> Vec<Option<NaiveDateTime>> {
-        self.0
-            .column("t")
-            .to_vec()
-            .into_iter()
-            .map(|x| match x {
-                Some(x) => NaiveDateTime::from_timestamp_millis(x),
-                None => None,
-            })
-            .collect()
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ScoreDfSummary {
-    pub average_score: f64,
-    // in seconds
-    pub duration: u32,
-    pub min: f64,
-    pub max: f64,
-}
-
-impl Into<ScoreDfSummary> for ScoreDf {
-    fn into(self) -> ScoreDfSummary {
-        self.summary()
-    }
-}
 
 impl FromStr for TableFormat {
     type Err = ParseOutputFormatError;
@@ -271,7 +164,7 @@ pub fn create_user_df<'a>(
         files = filter_files_by_date(files, date.unwrap())
     }
 
-    println!("cat files");
+    println!("cat files for output type: {:?}", output_type);
     let new_path = concat_csv_files(files);
     let df = read_csv_file(&new_path, output_type);
     fs::remove_file(new_path).expect("could not delete file");
@@ -283,23 +176,22 @@ pub fn write_df(path: &PathBuf, df: DataFrame) {
     match TableFormat::from_str(path.to_str().unwrap()) {
         Ok(e) => match e {
             TableFormat::Arrow => todo!("the arrow format writer is not yet implemented"),
-            TableFormat::Csv => match CsvWriter::new(file).has_header(false).finish(
-                // TODO the polars parser doesn't recognize iso 8601 while parsing
-                // therefore the time strings are converted back to i64, which is stupid
-                // but otherwise the csv can't be parsed again
-                &mut df
-                    .clone()
-                    .with_column(
-                        df.column("t")
-                            .expect("did not found column t")
-                            .cast(&DataType::Int64)
-                            .expect("could not case date to int"),
-                    )
-                    .expect("could not replace time with int for write"),
-            ) {
-                Ok(_) => println!("wrote file to {:?}", path),
-                Err(_) => println!("failed to write file"),
-            },
+            TableFormat::Csv => {
+                if let Some(mut df) = convert_time_to_i64(&mut df.clone(), Some("t")) {
+                    match CsvWriter::new(file).has_header(false).finish(&mut df) {
+                        Ok(_) => println!("wrote file to {:?}", path),
+                        Err(_) => println!("could no write df"),
+                    }
+                } else {
+                    match CsvWriter::new(file)
+                        .has_header(false)
+                        .finish(&mut df.clone())
+                    {
+                        Ok(_) => println!("wrote file to {:?}", path),
+                        Err(_) => println!("could no write df"),
+                    }
+                }
+            }
             TableFormat::Parquet => {
                 let mut df = if (!is_new_schema(&df))
                     && match infer_df_type(&df) {
@@ -321,6 +213,18 @@ pub fn write_df(path: &PathBuf, df: DataFrame) {
         },
         Err(_) => todo!(),
     }
+}
+
+pub fn convert_time_to_i64(df: &mut DataFrame, column: Option<&str>) -> Option<DataFrame> {
+    // TODO the polars parser doesn't recognize iso 8601 while parsing
+    // therefore the time strings are converted back to i64, which is stupid
+    // but otherwise the csv can't be parsed again
+    if let Ok(col) = df.column(column.unwrap_or("t")) {
+        if let Ok(col) = col.cast(&DataType::Int64) {
+            return df.clone().with_column(col).ok().cloned();
+        }
+    }
+    None
 }
 
 pub fn convert_i64_to_time(df: &mut DataFrame, column: Option<&str>) -> Option<DataFrame> {

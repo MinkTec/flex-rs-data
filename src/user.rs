@@ -3,18 +3,21 @@ pub mod feedback;
 pub mod metadata;
 
 use crate::{
-    df::ScoreDfSummary,
+    feedback::{BackpainFeedback, RectifyFeedback},
     fs::{list_files, MatchStringPattern},
-    misc::timeit,
-    user::daily_activities::DailyActivities,
+    logs::{find_in_logs, LogEntry},
+    misc::{parse_dart_timestring, timeit},
+    user::daily_activities::DailyActivities, df::score::{ScoreDfSummary, ScoreDf},
 };
 use anyhow::Result;
+use regex::Regex;
 
 use std::{
     cell::RefCell,
     collections::HashSet,
     fs::{read_to_string, DirEntry},
     path::PathBuf,
+    str::FromStr,
 };
 
 use chrono::{NaiveDate, NaiveDateTime};
@@ -23,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    df::{create_user_df, ScoreDf},
+    df::create_user_df,
     fs::{
         find_inital_app_start, find_sensors, find_uuid_dirs, find_uuids_after, parse_subdirs,
         GetPaths, ParsedDir,
@@ -142,7 +145,46 @@ impl User {
         }
     }
 
-    pub fn get_feedback(&self, feedback_type: FeedbackType) -> Option<String> {
+    pub fn find_in_logs(&self, regex: Regex) -> Vec<LogEntry> {
+        find_in_logs(&self.dirs.clone().to_paths(), regex)
+    }
+
+    pub fn get_rectify_feedback(&self) -> Option<TimedData<RectifyFeedback>> {
+        match self.get_feedback(FeedbackType::Rectify) {
+            Some(td) => {
+                let data = match RectifyFeedback::from_str(td.data.as_str()) {
+                    Ok(f) => f,
+                    Err(_) => return None,
+                };
+                Some(TimedData {
+                    time: td.time,
+                    data,
+                })
+            }
+            _ => None,
+        }
+    }
+
+    pub fn get_backpain_feedback(&self) -> Option<TimedData<BackpainFeedback>> {
+        match self.get_feedback(FeedbackType::Backpain) {
+            Some(td) => {
+                let data = match BackpainFeedback::from_str(td.data.as_str()) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        println!("{:?}", e);
+                        return None;
+                    }
+                };
+                Some(TimedData {
+                    time: td.time,
+                    data,
+                })
+            }
+            _ => None,
+        }
+    }
+
+    fn get_feedback(&self, feedback_type: FeedbackType) -> Option<TimedData<String>> {
         let mut candidates = self
             .dirs
             .clone()
@@ -160,7 +202,24 @@ impl User {
         candidates.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
 
         match candidates.last() {
-            Some(e) => read_to_string(e.path()).ok(),
+            Some(e) => match read_to_string(e.path()) {
+                Ok(string) => {
+                    let time = parse_dart_timestring(
+                        e.path()
+                            .file_name()
+                            .unwrap()
+                            .to_str()
+                            .unwrap()
+                            .to_string()
+                            .split_once("_")
+                            .unwrap()
+                            .1,
+                    )
+                    .unwrap();
+                    Some(TimedData { time, data: string })
+                }
+                _ => None,
+            },
             _ => None,
         }
     }
