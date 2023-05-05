@@ -1,10 +1,14 @@
 use chrono::NaiveDateTime;
 use polars::prelude::{DataFrame, DataType, PolarsError, Series, SeriesTrait};
 use serde::{Deserialize, Serialize};
+use timespan::Timespan;
 
-use crate::{schema::ScoreDfJS, series::ToVec};
+use crate::{schema::ScoreDfJS, series::ToVec, user::DatedData};
 
-use super::convert_i64_to_time;
+use super::{
+    convert_i64_to_time,
+    time_bound_df::{TimeBoundDf, TimeBoundDfEmpty},
+};
 
 #[derive(Debug)]
 pub struct ScoreDf(DataFrame);
@@ -12,6 +16,15 @@ pub struct ScoreDf(DataFrame);
 impl ScoreDf {
     pub fn new(df: DataFrame) -> ScoreDf {
         ScoreDf(df)
+    }
+
+    pub fn between(&self, ts: Timespan) -> Self {
+        let mask = self
+            .time()
+            .into_iter()
+            .map(|x| ts.is_inside(x.unwrap()))
+            .collect();
+        ScoreDf(self.0.filter(&mask).unwrap())
     }
 
     fn _get_unique_days(&self) -> Series {
@@ -24,7 +37,7 @@ impl ScoreDf {
             .unwrap()
     }
 
-    pub fn get_days(&mut self) -> Vec<Result<ScoreDf, PolarsError>> {
+    pub fn get_days(&mut self) -> Vec<Result<DatedData<ScoreDf>, PolarsError>> {
         self.convert_t_to_time();
         self.0
             .sort_in_place(["t"], false)
@@ -45,7 +58,16 @@ impl ScoreDf {
             .unwrap()
             .into_iter()
             .map(|x| match self.0.take(x.unwrap().u32().unwrap()) {
-                Ok(df) => Ok(ScoreDf(df)),
+                Ok(df) => {
+                    let df = ScoreDf(df);
+                    match df.timespan() {
+                        Some(ts) => Ok(DatedData {
+                            time: ts.begin.date(),
+                            data: df,
+                        }),
+                        None => Err(PolarsError::NoData("time bound df empty".into())),
+                    }
+                }
                 Err(e) => Err(e),
             })
             .collect()
@@ -84,7 +106,11 @@ impl ScoreDf {
         )
     }
 
-    fn time(&self) -> Vec<Option<NaiveDateTime>> {
+    pub fn time_col(&self) -> Series {
+        self.0["t"].clone()
+    }
+
+    pub fn time(&self) -> Vec<Option<NaiveDateTime>> {
         self.0
             .column("t")
             .to_vec()
@@ -111,4 +137,3 @@ impl Into<ScoreDfSummary> for ScoreDf {
         self.summary()
     }
 }
-

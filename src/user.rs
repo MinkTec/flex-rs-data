@@ -3,11 +3,12 @@ pub mod feedback;
 pub mod metadata;
 
 use crate::{
+    df::score::{ScoreDf, ScoreDfSummary},
     feedback::{BackpainFeedback, RectifyFeedback},
     fs::{list_files, MatchStringPattern},
     logs::{find_in_logs, LogEntry},
     misc::{parse_dart_timestring, timeit},
-    user::daily_activities::DailyActivities, df::score::{ScoreDfSummary, ScoreDf},
+    user::daily_activities::DailyActivities,
 };
 use anyhow::Result;
 use regex::Regex;
@@ -39,12 +40,18 @@ use self::{feedback::FeedbackType, metadata::UserMetadata};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserScoreSummary {
     pub overall_summary: ScoreDfSummary,
-    pub daily_summaries: Vec<SpanningData<ScoreDfSummary>>,
+    pub daily_summaries: Vec<DatedData<ScoreDfSummary>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpanningData<T> {
     pub span: (NaiveDateTime, NaiveDateTime),
+    pub data: T,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatedData<T> {
+    pub time: NaiveDate,
     pub data: T,
 }
 
@@ -108,11 +115,11 @@ impl User {
                 daily_summaries: days
                     .into_iter()
                     .filter_map(|x| match x {
-                        Ok(x) => Some(SpanningData {
-                            span: x.begin_and_end(),
-                            data: x.into(),
+                        Ok(x) => Some(DatedData {
+                            time: x.time,
+                            data: x.data.into(),
                         }),
-                        Err(_) => None,
+                        _ => None,
                     })
                     .collect(),
             })
@@ -134,7 +141,7 @@ impl User {
     }
 
     pub fn get_df(&self, output_type: OutputType, date: Option<NaiveDate>) -> Option<DataFrame> {
-        println!("creating user df");
+        println!("creating user df of type: {:?}", output_type);
         timeit(|| create_user_df(&self.dirs.clone().to_paths(), output_type.clone(), date))
     }
 
@@ -154,7 +161,10 @@ impl User {
             Some(td) => {
                 let data = match RectifyFeedback::from_str(td.data.as_str()) {
                     Ok(f) => f,
-                    Err(_) => return None,
+                    Err(e) => {
+                        println!("failed to parse {} with {:?}", td.data, e);
+                        return None;
+                    }
                 };
                 Some(TimedData {
                     time: td.time,

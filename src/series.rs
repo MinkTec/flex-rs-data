@@ -13,6 +13,17 @@ pub trait ToVec<T> {
     fn to_vec(&self) -> Vec<Option<T>>;
 }
 
+impl ToVec<Vec<i32>> for ChunkedArray<ListType> {
+    fn to_vec(&self) -> Vec<Option<Vec<i32>>> {
+        self.into_iter()
+            .map(|x| match x {
+                Some(x) => Some(x.to_vec().into_iter().map(|x| x.unwrap()).collect()),
+                _ => None,
+            })
+            .collect()
+    }
+}
+
 impl ToVec<i32> for Series {
     fn to_vec(&self) -> Vec<Option<i32>> {
         match self.i32() {
@@ -47,6 +58,23 @@ impl ToVec<i32> for PolarsResult<&Series> {
     fn to_vec(&self) -> Vec<Option<i32>> {
         match self {
             Ok(series) => series.to_vec(),
+            _ => vec![],
+        }
+    }
+}
+
+impl ToVec<i16> for AnyValue<'_> {
+    fn to_vec(&self) -> Vec<Option<i16>> {
+        match self {
+            AnyValue::List(v) => v
+                .i32()
+                .unwrap()
+                .into_iter()
+                .map(|x| match x {
+                    Some(x) => Some(x as i16),
+                    _ => None,
+                })
+                .collect(),
             _ => vec![],
         }
     }

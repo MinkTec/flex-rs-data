@@ -2,7 +2,7 @@ use polars::prelude::{DataFrame, DataType, Field, Schema};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-use crate::series::ToVec;
+use crate::{df::raw::RawDf, series::ToVec};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ScoreDfJS {
@@ -30,6 +30,29 @@ impl From<DataFrame> for ScoreDfJS {
                 },
                 Err(_) => vec![],
             },
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RawDfJS {
+    pub t: Vec<Option<i64>>,
+    pub left: Vec<Option<Vec<i32>>>,
+    pub right: Vec<Option<Vec<i32>>>,
+    pub acc: Vec<Option<Vec<i32>>>,
+    pub gyro: Vec<Option<Vec<i32>>>,
+    pub v: Vec<Option<i32>>,
+}
+
+impl From<RawDf> for RawDfJS {
+    fn from(df: RawDf) -> Self {
+        RawDfJS {
+            t: df.time().to_vec(),
+            left: df.left().to_vec(),
+            right: df.right().to_vec(),
+            acc: df.acc().to_vec(),
+            gyro: df.gyro().to_vec(),
+            v: df.voltage().to_vec(),
         }
     }
 }

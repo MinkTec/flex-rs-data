@@ -1,4 +1,7 @@
+pub mod raw;
 pub mod score;
+pub mod time_bound_df;
+
 use chrono::NaiveDate;
 use flex_rs_core::dht::CartesianCoordinates;
 use flex_rs_core::measurement::{Measurement, SensorPosition};
@@ -18,6 +21,8 @@ use crate::fs::{
 use crate::misc::{get_num_of_sensors_from_file, infer_df_type, infer_file_type, is_new_schema};
 use crate::schema::{generate_flextail_schema, generate_points_schema, OutputType};
 use crate::series::ToSeries;
+
+use self::raw::transform_to_new_schema;
 
 enum TableFormat {
     Csv,
@@ -41,6 +46,17 @@ impl FromStr for TableFormat {
             },
             None => Err(ParseOutputFormatError),
         }
+    }
+}
+
+struct ColNameGenerator;
+
+impl ColNameGenerator {
+    pub fn prefix_n(prefix: &str, n: usize) -> Vec<String> {
+        (1..=n)
+            .into_iter()
+            .map(|x| format!("{}{}", prefix, x))
+            .collect()
     }
 }
 
@@ -68,56 +84,6 @@ fn any_value_to_i16(row: Vec<&AnyValue<'_>>) -> Vec<i16> {
             }
         })
         .collect()
-}
-
-fn measurement_from_df_row(row: Vec<AnyValue<'_>>, n: usize) -> Option<Measurement> {
-    let data = row.iter().take(2 * n + 7).collect::<Vec<&AnyValue<'_>>>();
-    match row.iter().last().unwrap() {
-        AnyValue::Datetime(epoch, _, _) => Some(Measurement::new(
-            any_value_to_i16(data),
-            Some(epoch.to_owned()),
-        )),
-        _ => {
-            println!("could not create measurement from row: {:?}", row);
-            None
-        }
-    }
-}
-
-pub fn transform_to_new_schema(df: &DataFrame) -> Option<DataFrame> {
-    let n = (df.get_row(0).unwrap().0.len() - 8) / 2;
-    let mut v = vec![];
-
-    for i in 0..df.shape().0 {
-        let row = df.get_row(i).unwrap().0;
-        match measurement_from_df_row(row, n) {
-            Some(m) => v.push(m),
-            None => {}
-        }
-    }
-
-    let position = v
-        .iter()
-        .map(|x| x.calc_position())
-        .collect::<Vec<SensorPosition>>();
-
-    match df!(
-        "left" => v.iter().map(|m| &m.left).collect::<Vec<&Vec<i16>>>().to_series(),
-        "right" => v.iter().map(|m| &m.right).collect::<Vec<&Vec<i16>>>().to_series(),
-        "acc" => v.iter().map(|m| &m.acc).collect::<Vec<&Vec<i16>>>().to_series(),
-        "gyro" => v.iter().map(|m| &m.gyro).collect::<Vec<&Vec<i16>>>().to_series(),
-        "v" => v.iter().map(|m| &m.v).collect::<Vec<&i16>>().to_series(),
-        "t" => v.iter().map(|m| &m.time).collect::<Vec<&Option<i64>>>().to_series(),
-        "alpha" => position.iter().map(|m| &m.alpha).collect::<Vec<&Vec<f64>>>().to_series(),
-        "beta" => position.iter().map(|m| &m.beta).collect::<Vec<&Vec<f64>>>().to_series(),
-        "coords" => position.iter().map(|m| &m.coords).collect::<Vec<&CartesianCoordinates>>().to_series(),
-    ) {
-        Ok(e) => Some(e),
-        Err(e) => {
-            println!("failed to create df with error: {}", e);
-            None
-        }
-    }
 }
 
 pub fn read_input_file_into_df(path: PathBuf) -> Option<DataFrame> {
@@ -160,6 +126,11 @@ pub fn create_user_df<'a>(
         .flatten()
         .collect();
 
+    match output_type {
+        OutputType::raw => println!("{:?}", files),
+        _ => {}
+    }
+
     if date.is_some() {
         files = filter_files_by_date(files, date.unwrap())
     }
@@ -171,6 +142,70 @@ pub fn create_user_df<'a>(
     return df;
 }
 
+fn flatten_df(df: DataFrame) -> Result<DataFrame, PolarsError> {
+    let mut lazyframe = df.lazy();
+    let left: Vec<String> = (1..=18).into_iter().map(|x| format!("l{}", x)).collect();
+    let right: Vec<String> = (1..=18).into_iter().map(|x| format!("r{}", x)).collect();
+    let bend: Vec<String> = (1..=18)
+        .into_iter()
+        .map(|x| format!("bend_{}", x))
+        .collect();
+    let twist: Vec<String> = (1..=18)
+        .into_iter()
+        .map(|x| format!("twist_{}", x))
+        .collect();
+    let acc: Vec<String> = ('x'..='z').into_iter().map(|x| x.to_string()).collect();
+    let gyro: Vec<String> = vec!["ɑ", "β", "ɣ"]
+        .into_iter()
+        .map(|x| x.to_string())
+        .collect();
+
+    let column_names: Vec<&str> = vec!["left", "right", "acc", "gyro", "alpha", "beta"];
+
+    for pair in column_names
+        .clone()
+        .into_iter()
+        .zip(vec![left, right, acc, gyro, bend, twist])
+        .into_iter()
+    {
+        for (index, ch) in pair.1.iter().enumerate().take(pair.1.len()) {
+            lazyframe = lazyframe.with_columns([col(pair.0)
+                .arr()
+                .get(lit(index as i64))
+                .alias(&ch.to_string())])
+        }
+    }
+
+    println!("{:?}", lazyframe.schema());
+
+    let lazyframe = lazyframe.drop_columns(column_names);
+    let lazyframe = lazyframe.drop_columns(["coords"]);
+
+    println!("{:?}", lazyframe.schema());
+
+    lazyframe.collect()
+}
+
+fn write_flat_df(path: &PathBuf, df: DataFrame) {
+    println!("flat df");
+    match flatten_df(df) {
+        Ok(df) => {
+            println!("{:?}", df);
+            let file = &mut File::create(path).expect("could not create file");
+            match CsvWriter::new(file)
+                .has_header(false)
+                .finish(&mut df.clone())
+            {
+                Ok(_) => println!("wrote file to {:?}", path),
+                Err(e) => {
+                    println!("could no write df 1 {e}")
+                }
+            }
+        }
+        Err(e) => println!("could no write df 2 {e}"),
+    }
+}
+
 pub fn write_df(path: &PathBuf, df: DataFrame) {
     let file = &mut File::create(path).expect("could not create file");
     match TableFormat::from_str(path.to_str().unwrap()) {
@@ -180,7 +215,7 @@ pub fn write_df(path: &PathBuf, df: DataFrame) {
                 if let Some(mut df) = convert_time_to_i64(&mut df.clone(), Some("t")) {
                     match CsvWriter::new(file).has_header(false).finish(&mut df) {
                         Ok(_) => println!("wrote file to {:?}", path),
-                        Err(_) => println!("could no write df"),
+                        Err(e) => write_flat_df(path, df),
                     }
                 } else {
                     match CsvWriter::new(file)
@@ -188,7 +223,9 @@ pub fn write_df(path: &PathBuf, df: DataFrame) {
                         .finish(&mut df.clone())
                     {
                         Ok(_) => println!("wrote file to {:?}", path),
-                        Err(_) => println!("could no write df"),
+                        Err(e) => {
+                            println!("could no write df {e}")
+                        }
                     }
                 }
             }
@@ -323,4 +360,55 @@ pub fn df_column_to_data_point(
             .map(|x| x.unwrap())
             .collect(),
     )
+}
+
+pub enum SusLevel {
+    Ok,
+    Sus(String),
+    TurboSus(String),
+}
+
+fn validate_rows(df: DataFrame) -> SusLevel {
+    let n = (df.shape().1 - 8) / 2;
+    let mut sus_counter: usize = 0;
+
+    for i in 0..df.shape().0 {
+        if any_value_to_i16(
+            df.get_row(i)
+                .unwrap()
+                .0
+                .iter()
+                .take(2 * n)
+                .collect::<Vec<&AnyValue<'_>>>(),
+        )
+        .into_iter()
+        .filter(|x| x.abs() > 500)
+        .count()
+            > 2
+        {
+            sus_counter += 1;
+        }
+    }
+
+    let sus_percent = sus_counter as f32 / df.shape().0 as f32;
+    if sus_percent > 0.02 {
+        SusLevel::TurboSus(format!("{}% faulty rows", (100.0 * sus_percent).round()))
+    } else if sus_percent > 0.01 {
+        SusLevel::Sus(format!("{}% faulty rows", (100.0 * sus_percent).round()))
+    } else {
+        SusLevel::Ok
+    }
+}
+
+pub fn validate_file(path: &PathBuf) -> SusLevel {
+    match read_raw_csv(path) {
+        Some(df) => {
+            if df.is_empty() {
+                return SusLevel::TurboSus("empty".to_string());
+            } else {
+                validate_rows(df)
+            }
+        }
+        _ => SusLevel::TurboSus("could not be parsed".to_string()),
+    }
 }

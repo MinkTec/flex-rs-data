@@ -28,9 +28,12 @@ pub fn get_number_of_csv_fields(path: &PathBuf) -> usize {
 }
 
 pub fn get_num_of_sensors_from_file(dir: &PathBuf) -> usize {
-    let n = get_number_of_csv_fields(dir);
-    if n >= 7 {
-        (n - 7) / 2
+    get_num_of_sensors(get_number_of_csv_fields(dir))
+}
+
+pub fn get_num_of_sensors(num_of_fields: usize) -> usize {
+    if num_of_fields >= 7 {
+        (num_of_fields - 7) / 2
     } else {
         0
     }

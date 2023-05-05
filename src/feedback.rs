@@ -55,7 +55,10 @@ impl FromStr for RectifyFeedback {
     type Err = FeedbackParseError;
 
     fn from_str(s: &str) -> Result<Self, FeedbackParseError> {
-        serde_json::from_str::<RectifyFeedback>(s).map_err(|_| FeedbackParseError)
+        serde_json::from_str::<RectifyFeedback>(s).map_err(|e| {
+            println!("parsing error: {}", e);
+            FeedbackParseError
+        })
     }
 }
 
@@ -137,12 +140,11 @@ enum VibrationIsValue {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
 enum SpeedOptions {
-    ToSlow,
-    Good,
-    ToFast,
-    Na,
+    toSlow,
+    good,
+    toFast,
+    na,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -185,12 +187,11 @@ enum ShirtWearLocation {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
 enum AppUsability {
-    Intelligible,
-    SlightlyComplicated,
-    Complicated,
-    Na,
+    intelligible,
+    slightlyComplicated,
+    complicated,
+    na,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -231,13 +232,12 @@ enum RectifyDuration {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
 enum RectifyBenefit {
-    VeryUseful,
-    Useful,
-    NotReallyUseful,
-    NotUseful,
-    Na,
+    veryUseful,
+    useful,
+    notReallyUseful,
+    notUseful,
+    na,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -248,6 +248,13 @@ enum BuyRectify {
     Na,
 }
 
+#[allow(
+    dead_code,
+    non_snake_case,
+    non_upper_case_globals,
+    enum_intrinsics_non_enums,
+    non_camel_case_types
+)]
 #[derive(Deserialize, Serialize, Debug)]
 pub struct BackpainFeedback {
     gender: Gender,

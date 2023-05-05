@@ -1,8 +1,11 @@
 use std::{collections::HashSet, str::FromStr};
 
+use crate::{
+    fs::{list_files, ParsedDir},
+    misc::read_first_line,
+};
 use chrono::NaiveDateTime;
-use serde::{Serialize, Deserialize};
-use crate::{fs::{ParsedDir, list_files}, misc::read_first_line};
+use serde::{Deserialize, Serialize};
 
 use super::TimedData;
 
