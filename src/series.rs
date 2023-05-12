@@ -11,6 +11,7 @@ pub trait ToSeries {
 
 pub trait ToVec<T> {
     fn to_vec(&self) -> Vec<Option<T>>;
+    fn to_vec_unchecked(&self) -> Vec<T>;
 }
 
 impl ToVec<Vec<i32>> for ChunkedArray<ListType> {
@@ -22,12 +23,50 @@ impl ToVec<Vec<i32>> for ChunkedArray<ListType> {
             })
             .collect()
     }
+
+    fn to_vec_unchecked(&self) -> Vec<Vec<i32>> {
+        self.into_iter()
+            .map(|x| {
+                x.unwrap()
+                    .to_vec()
+                    .into_iter()
+                    .map(|x| x.unwrap())
+                    .collect()
+            })
+            .collect()
+    }
 }
 
 impl ToVec<i32> for Series {
     fn to_vec(&self) -> Vec<Option<i32>> {
         match self.i32() {
             Ok(ok) => ok.to_vec(),
+            Err(_) => vec![],
+        }
+    }
+
+    fn to_vec_unchecked(&self) -> Vec<i32> {
+        self.to_vec().into_iter().map(|x| x.unwrap()).collect()
+    }
+}
+
+impl ToVec<i16> for Series {
+    fn to_vec(&self) -> Vec<Option<i16>> {
+        match self.i32() {
+            Ok(ok) => ok
+                .into_iter()
+                .map(|x| match x {
+                    Some(x) => Some(x as i16),
+                    _ => None,
+                })
+                .collect(),
+            Err(_) => vec![],
+        }
+    }
+
+    fn to_vec_unchecked(&self) -> Vec<i16> {
+        match self.i32() {
+            Ok(ok) => ok.into_iter().map(|x| x.unwrap() as i16).collect(),
             Err(_) => vec![],
         }
     }
@@ -43,6 +82,16 @@ impl ToVec<i64> for Series {
             },
         }
     }
+
+    fn to_vec_unchecked(&self) -> Vec<i64> {
+        match self.i64() {
+            Ok(ok) => ok.to_vec().into_iter().map(|x| x.unwrap()).collect(),
+            Err(_) => match self.datetime() {
+                Ok(ok) => ok.into_iter().map(|x| x.unwrap().into()).collect(),
+                Err(_) => vec![],
+            },
+        }
+    }
 }
 
 impl ToVec<f64> for Series {
@@ -52,6 +101,10 @@ impl ToVec<f64> for Series {
             Err(_) => vec![],
         }
     }
+
+    fn to_vec_unchecked(&self) -> Vec<f64> {
+        self.to_vec().into_iter().map(|x| x.unwrap()).collect()
+    }
 }
 
 impl ToVec<i32> for PolarsResult<&Series> {
@@ -60,6 +113,10 @@ impl ToVec<i32> for PolarsResult<&Series> {
             Ok(series) => series.to_vec(),
             _ => vec![],
         }
+    }
+
+    fn to_vec_unchecked(&self) -> Vec<i32> {
+        self.to_vec().into_iter().map(|x| x.unwrap()).collect()
     }
 }
 
@@ -78,6 +135,18 @@ impl ToVec<i16> for AnyValue<'_> {
             _ => vec![],
         }
     }
+
+    fn to_vec_unchecked(&self) -> Vec<i16> {
+        match self {
+            AnyValue::List(v) => v
+                .i32()
+                .unwrap()
+                .into_iter()
+                .map(|x| x.unwrap() as i16)
+                .collect(),
+            _ => vec![],
+        }
+    }
 }
 
 impl ToVec<f64> for PolarsResult<&Series> {
@@ -87,6 +156,10 @@ impl ToVec<f64> for PolarsResult<&Series> {
             _ => vec![],
         }
     }
+
+    fn to_vec_unchecked(&self) -> Vec<f64> {
+        self.to_vec().into_iter().map(|x| x.unwrap()).collect()
+    }
 }
 
 impl ToVec<i64> for PolarsResult<&Series> {
@@ -95,6 +168,10 @@ impl ToVec<i64> for PolarsResult<&Series> {
             Ok(series) => series.to_vec(),
             _ => vec![],
         }
+    }
+
+    fn to_vec_unchecked(&self) -> Vec<i64> {
+        self.to_vec().into_iter().map(|x| x.unwrap()).collect()
     }
 }
 
@@ -117,23 +194,21 @@ impl ToSeries for Vec<f64> {
     }
 }
 
+impl<T> ToSeries for Vec<T>
+where
+    T: ToSeries,
+{
+    fn to_series(&self) -> Series {
+        ListChunked::from_iter(self.into_iter().map(|v| v.to_series())).into_series()
+    }
+}
+
 impl ToSeries for Vec<&Vec<f64>> {
     fn to_series(&self) -> Series {
         ListChunked::from_iter(self.into_iter().map(|v| v.to_series())).into_series()
     }
 }
 
-impl ToSeries for Vec<Vec<f64>> {
-    fn to_series(&self) -> Series {
-        ListChunked::from_iter(self.into_iter().map(|v| v.to_series())).into_series()
-    }
-}
-
-impl ToSeries for Vec<Vec<i16>> {
-    fn to_series(&self) -> Series {
-        ListChunked::from_iter(self.into_iter().map(|v| v.to_series())).into_series()
-    }
-}
 
 impl ToSeries for Vec<i16> {
     fn to_series(&self) -> Series {
@@ -150,12 +225,6 @@ impl ToSeries for &CartesianCoordinates {
             Float64Chunked::from_vec("z", self.z.to_owned()).into_series(),
         ])
         .into_series()
-    }
-}
-
-impl ToSeries for Vec<&CartesianCoordinates> {
-    fn to_series(&self) -> Series {
-        ListChunked::from_iter(self.into_iter().map(|v| v.to_series())).into_series()
     }
 }
 

@@ -1,8 +1,55 @@
 use polars::prelude::{DataFrame, DataType, Field, Schema};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use timespan::DatedData;
 
-use crate::{df::raw::RawDf, series::ToVec};
+use crate::{
+    df::{raw::RawDf, score::ScoreDf},
+    series::ToVec,
+};
+
+pub trait ToJS<T> {
+    fn to_js(&self) -> T
+    where
+        T: Serialize;
+}
+
+impl ToJS<ScoreDfJS> for ScoreDf {
+    fn to_js(&self) -> ScoreDfJS {
+        self.0.clone().into()
+    }
+}
+
+impl ToJS<RawDfJS> for RawDf {
+    fn to_js(&self) -> RawDfJS
+    where
+        RawDfJS: Serialize,
+    {
+        RawDf(self.0.clone()).into()
+    }
+}
+
+impl ToJS<Vec<DatedData<ScoreDfJS>>> for Vec<DatedData<Box<ScoreDf>>> {
+    fn to_js(&self) -> Vec<DatedData<ScoreDfJS>> {
+        self.into_iter()
+            .map(|x| DatedData {
+                time: x.time,
+                data: ScoreDf(x.data.clone()).to_js(),
+            })
+            .collect()
+    }
+}
+
+impl ToJS<Vec<DatedData<RawDfJS>>> for Vec<DatedData<Box<RawDf>>> {
+    fn to_js(&self) -> Vec<DatedData<RawDfJS>> {
+        self.into_iter()
+            .map(|x| DatedData {
+                time: x.time,
+                data: RawDf(x.data.clone()).to_js(),
+            })
+            .collect()
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ScoreDfJS {
@@ -42,6 +89,7 @@ pub struct RawDfJS {
     pub acc: Vec<Option<Vec<i32>>>,
     pub gyro: Vec<Option<Vec<i32>>>,
     pub v: Vec<Option<i32>>,
+    pub movement: Option<Vec<Option<f64>>>,
 }
 
 impl From<RawDf> for RawDfJS {
@@ -53,6 +101,10 @@ impl From<RawDf> for RawDfJS {
             acc: df.acc().to_vec(),
             gyro: df.gyro().to_vec(),
             v: df.voltage().to_vec(),
+            movement: match df.0.column("movement") {
+                Ok(series) => Some(series.to_vec()),
+                Err(_) => None,
+            },
         }
     }
 }

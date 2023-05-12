@@ -126,16 +126,10 @@ pub fn create_user_df<'a>(
         .flatten()
         .collect();
 
-    match output_type {
-        OutputType::raw => println!("{:?}", files),
-        _ => {}
-    }
-
     if date.is_some() {
         files = filter_files_by_date(files, date.unwrap())
     }
 
-    println!("cat files for output type: {:?}", output_type);
     let new_path = concat_csv_files(files);
     let df = read_csv_file(&new_path, output_type);
     fs::remove_file(new_path).expect("could not delete file");
@@ -289,7 +283,10 @@ pub fn read_points_csv(path: &PathBuf) -> Option<DataFrame> {
         .with_ignore_errors(true)
         .has_header(false);
     match reader.finish() {
-        Ok(e) => Some(e),
+        Ok(e) => match Some(e) {
+            Some(mut e) => convert_i64_to_time(&mut e, Some("t")),
+            None => None,
+        },
         Err(e) => {
             println!("failed to read points df {}", e);
             None

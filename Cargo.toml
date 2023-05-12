@@ -20,3 +20,5 @@ regex = "1.7.3"
 chrono-tz = "0.8.2"
 anyhow = "1.0.70"
 timespan = { path = "../timespan" }
+num = "0.4.0"
+derive_more = "0.99.17"

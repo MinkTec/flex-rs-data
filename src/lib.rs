@@ -7,4 +7,6 @@ pub mod series;
 pub mod user;
 pub mod logs;
 pub mod feedback;
+pub mod vec_vec_utils;
+pub mod utils;
 mod grep_wrapper;

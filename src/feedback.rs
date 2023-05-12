@@ -128,6 +128,10 @@ eMail: {:?}"#,
     }
 }
 
+#[allow(
+    non_snake_case,
+    non_camel_case_types
+)]
 #[derive(Debug, Deserialize, Serialize)]
 enum VibrationIsValue {
     ist_gut_Genug,
@@ -139,6 +143,10 @@ enum VibrationIsValue {
     na,
 }
 
+#[allow(
+    non_snake_case,
+    non_camel_case_types
+)]
 #[derive(Debug, Deserialize, Serialize)]
 enum SpeedOptions {
     toSlow,
@@ -147,6 +155,10 @@ enum SpeedOptions {
     na,
 }
 
+#[allow(
+    non_snake_case,
+    non_camel_case_types
+)]
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 enum MotivationOptions {
@@ -186,6 +198,10 @@ enum ShirtWearLocation {
     Na(Option<bool>),
 }
 
+#[allow(
+    non_snake_case,
+    non_camel_case_types
+)]
 #[derive(Debug, Deserialize, Serialize)]
 enum AppUsability {
     intelligible,
@@ -231,6 +247,10 @@ enum RectifyDuration {
     Eight,
 }
 
+#[allow(
+    non_snake_case,
+    non_camel_case_types
+)]
 #[derive(Debug, Deserialize, Serialize)]
 enum RectifyBenefit {
     veryUseful,
@@ -374,7 +394,7 @@ impl CustomPrint for Option<String> {
 impl CustomPrint for HashMap<String, bool> {
     fn print(&self) -> String {
         self.iter()
-            .map(|(k, v)| format!("\t{:?}: {:?}", k, v))
+            .map(|(k, v)| format!("\t{}: {:?}", k, v))
             .collect::<Vec<String>>()
             .join("\n")
     }
@@ -475,6 +495,11 @@ enum IfBackpainWhere {
     Hip,
     Na,
 }
+
+#[allow(
+    non_snake_case,
+    non_camel_case_types
+)]
 #[derive(Debug, Deserialize, Serialize, Hash, PartialEq, Eq)]
 enum WalkingPain {
     no,
@@ -612,4 +637,69 @@ pub fn parse_feedback(feedback: &str) {
             }
         },
     }
+}
+
+pub struct FeedbackCsv {}
+
+impl FeedbackCsv {
+    pub fn print_header() {
+        println!("shirtComfort, sensorIsMoving, shirtWearLocations, shirtWearDuration, shirtWearWeekly, rectifyDuration, appUsability, rectifyBenefit, vibrationBenefit, saturationBenefit, evaluationBenefit, miniExerciseBenefit, trainingBenefit, otherFeatureWishes, vibrationLevelPref, vibrationMissingWhen, vibrationIs, otherWishes, reductionWhileSitting, increaseWhileMoving, occuredBugs, buyRectify, rectifyPrice, rectifyPricespan, gender, age, weight, bodyHeight, backpainFrequency, ifBackpainWhere, ifBackpainWhereLR, backpainLevel, walkingPain, walkingPainLevel, painProblems, postureSelf, mobilifySelf, movementAtWork, movementFreeTime, standingDesk, sittingStandingSwitch");
+    }
+}
+
+pub fn gen_csv_line(rectify: RectifyFeedback, backpain: BackpainFeedback) -> String {
+    format!(
+        r#"{:?}, {:?}, {}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {}, {:?}, {:?}, {:?}, {:?}, {}, {:?}, {:?}, {}, {:?}, {:?}, {:?}, {}, {}, {}, {:?}, {}, {}, {:?}, {}, {}, {:?}, {}, {}, {}, {}, {:?}, {:?}"#,
+        rectify.shirtComfort,
+        rectify.sensorIsMoving,
+        rectify.shirtWearLocations.print(),
+        rectify.shirtWearDuration,
+        rectify.shirtWearWeekly,
+        rectify.rectifyDuration,
+        rectify.appUsability,
+        rectify.rectifyBenefit,
+        rectify.vibrationBenefit.print(),
+        rectify.saturationBenefit.print(),
+        rectify.evaluationBenefit.print(),
+        rectify.miniExerciseBenefit.print(),
+        rectify.trainingBenefit.print(),
+        rectify.otherFeatureWishes.print(),
+        rectify.vibrationLevelPref.print(),
+        rectify.vibrationMissingWhen.print(),
+        rectify.vibrationIs,
+        rectify.otherWishes.print(),
+        rectify.reductionWhileSitting,
+        rectify.increaseWhileMoving,
+        rectify.occuredBugs,
+        rectify.buyRectify,
+        rectify.rectifyPrice,
+        rectify.rectifyPricespan,
+        rectify.eMail,
+        backpain.gender,
+        match backpain.age.as_u64() {
+            Some(i) => AGE_RANGE[i as usize],
+            None => "-",
+        },
+        match backpain.weight.as_u64() {
+            Some(i) => WEIGTH[i as usize],
+            None => "-",
+        },
+        match backpain.bodyHeight.as_u64() {
+            Some(i) => HEIGHT[i as usize],
+            None => "-",
+        },
+        backpain.backpainFrequency,
+        backpain.ifBackpainWhere.print(),
+        backpain.ifBackpainWhereLR.print(),
+        backpain.backpainLevel.print(),
+        backpain.walkingPain.print(),
+        backpain.walkingPainLevel.print(),
+        backpain.painProblems,
+        backpain.postureSelf.print(),
+        backpain.mobilifySelf.print(),
+        backpain.movementAtWork.print(),
+        backpain.movementFreeTime.print(),
+        backpain.standingDesk,
+        backpain.sittingStandingSwitch,
+    ).replace("\n", " | ").replace("\t", " ").replace(r#"\""#, "")
 }

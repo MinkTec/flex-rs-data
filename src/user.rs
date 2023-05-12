@@ -21,10 +21,12 @@ use std::{
     str::FromStr,
 };
 
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::NaiveDate;
 use polars::prelude::DataFrame;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+use timespan::*;
 
 use crate::{
     df::create_user_df,
@@ -35,30 +37,14 @@ use crate::{
     schema::OutputType,
 };
 
+use super::df::time_bound_df::TimeBoundDf;
+
 use self::{feedback::FeedbackType, metadata::UserMetadata};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserScoreSummary {
     pub overall_summary: ScoreDfSummary,
     pub daily_summaries: Vec<DatedData<ScoreDfSummary>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SpanningData<T> {
-    pub span: (NaiveDateTime, NaiveDateTime),
-    pub data: T,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DatedData<T> {
-    pub time: NaiveDate,
-    pub data: T,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TimedData<T> {
-    pub time: NaiveDateTime,
-    pub data: T,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,19 +93,21 @@ impl User {
     }
 
     pub fn gen_summary(&self) -> Option<UserScoreSummary> {
-        if let Some(mut df) = self.get_score_df() {
+        if let Some(df) = self.get_score_df() {
             let days = df.get_days();
-
             Some(UserScoreSummary {
                 overall_summary: df.into(),
                 daily_summaries: days
                     .into_iter()
-                    .filter_map(|x| match x {
-                        Ok(x) => Some(DatedData {
-                            time: x.time,
-                            data: x.data.into(),
-                        }),
-                        _ => None,
+                    .filter_map(|x| {
+                        if (*x.data).shape().0 > 0 {
+                            Some(DatedData {
+                                time: x.time,
+                                data: (*x.data).into(),
+                            })
+                        } else {
+                            None
+                        }
                     })
                     .collect(),
             })

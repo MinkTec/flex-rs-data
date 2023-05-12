@@ -1,76 +1,22 @@
-use chrono::NaiveDateTime;
-use polars::prelude::{DataFrame, DataType, PolarsError, Series, SeriesTrait};
+use polars::prelude::*;
 use serde::{Deserialize, Serialize};
-use timespan::Timespan;
 
-use crate::{schema::ScoreDfJS, series::ToVec, user::DatedData};
-
-use super::{
-    convert_i64_to_time,
-    time_bound_df::{TimeBoundDf, TimeBoundDfEmpty},
+use crate::{
+    misc::infer_df_type,
+    schema::{OutputType, ScoreDfJS},
+    series::ToVec,
 };
 
-#[derive(Debug)]
-pub struct ScoreDf(DataFrame);
+use derive_more::Deref;
+
+use super::convert_i64_to_time;
+
+#[derive(Debug, Deref)]
+pub struct ScoreDf(pub DataFrame);
 
 impl ScoreDf {
     pub fn new(df: DataFrame) -> ScoreDf {
         ScoreDf(df)
-    }
-
-    pub fn between(&self, ts: Timespan) -> Self {
-        let mask = self
-            .time()
-            .into_iter()
-            .map(|x| ts.is_inside(x.unwrap()))
-            .collect();
-        ScoreDf(self.0.filter(&mask).unwrap())
-    }
-
-    fn _get_unique_days(&self) -> Series {
-        self.0
-            .column("t")
-            .expect("no t column found in groupby day")
-            .cast(&DataType::Date)
-            .expect("failed to cast datetime to date")
-            .unique()
-            .unwrap()
-    }
-
-    pub fn get_days(&mut self) -> Vec<Result<DatedData<ScoreDf>, PolarsError>> {
-        self.convert_t_to_time();
-        self.0
-            .sort_in_place(["t"], false)
-            .expect("could not sort frame");
-
-        self.0
-            .groupby_with_series(
-                vec![self.0.column("t").unwrap().cast(&DataType::Date).unwrap()],
-                true,
-                true,
-            )
-            .expect("could no group")
-            .groups()
-            .expect("could no get groups")
-            .column("groups")
-            .unwrap()
-            .list()
-            .unwrap()
-            .into_iter()
-            .map(|x| match self.0.take(x.unwrap().u32().unwrap()) {
-                Ok(df) => {
-                    let df = ScoreDf(df);
-                    match df.timespan() {
-                        Some(ts) => Ok(DatedData {
-                            time: ts.begin.date(),
-                            data: df,
-                        }),
-                        None => Err(PolarsError::NoData("time bound df empty".into())),
-                    }
-                }
-                Err(e) => Err(e),
-            })
-            .collect()
     }
 
     fn convert_t_to_time(&mut self) {
@@ -98,28 +44,10 @@ impl ScoreDf {
         self.0.column("score").to_vec()
     }
 
-    pub fn begin_and_end(&self) -> (NaiveDateTime, NaiveDateTime) {
-        let col = self.0.column("t").unwrap();
-        (
-            NaiveDateTime::from_timestamp_millis(col.min().unwrap()).unwrap(),
-            NaiveDateTime::from_timestamp_millis(col.max().unwrap()).unwrap(),
-        )
-    }
-
-    pub fn time_col(&self) -> Series {
-        self.0["t"].clone()
-    }
-
-    pub fn time(&self) -> Vec<Option<NaiveDateTime>> {
-        self.0
-            .column("t")
-            .to_vec()
-            .into_iter()
-            .map(|x| match x {
-                Some(x) => NaiveDateTime::from_timestamp_millis(x),
-                None => None,
-            })
-            .collect()
+    pub fn time(&self) -> &Logical<DatetimeType, Int64Type> {
+        self.0["t"]
+            .datetime()
+            .expect("could not get time series score df")
     }
 }
 
@@ -135,5 +63,20 @@ pub struct ScoreDfSummary {
 impl Into<ScoreDfSummary> for ScoreDf {
     fn into(self) -> ScoreDfSummary {
         self.summary()
+    }
+}
+
+#[derive(Debug)]
+pub struct ScoreDfConversionError;
+
+impl TryFrom<DataFrame> for ScoreDf {
+    type Error = ScoreDfConversionError;
+
+    fn try_from(value: DataFrame) -> Result<ScoreDf, Self::Error> {
+        if let OutputType::points = infer_df_type(&value) {
+            Ok(ScoreDf(value))
+        } else {
+            Err(ScoreDfConversionError)
+        }
     }
 }
