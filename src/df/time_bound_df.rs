@@ -1,9 +1,11 @@
-use std::{fmt::Debug, ops::Deref};
+use std::{fmt::Debug, ops::Deref, path::PathBuf};
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use polars::prelude::*;
 
 use timespan::{DatedData, Timespan};
+
+use crate::schema::OutputType;
 
 use super::{raw::RawDf, score::ScoreDf};
 
@@ -124,6 +126,21 @@ where
                 vec![]
             }
         }
+    }
+}
+
+trait DataFrameType {
+    fn data_frame_type() -> OutputType;
+}
+
+impl DataFrameType for RawDf {
+    fn data_frame_type() -> OutputType {
+        OutputType::raw
+    }
+}
+impl DataFrameType for ScoreDf {
+    fn data_frame_type() -> OutputType {
+        OutputType::points
     }
 }
 

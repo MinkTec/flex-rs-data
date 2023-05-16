@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -9,7 +11,7 @@ use crate::{
 
 use derive_more::Deref;
 
-use super::convert_i64_to_time;
+use super::{convert_i64_to_time, create_user_df, read_csv_file};
 
 #[derive(Debug, Deref)]
 pub struct ScoreDf(pub DataFrame);
@@ -20,7 +22,7 @@ impl ScoreDf {
     }
 
     fn convert_t_to_time(&mut self) {
-        if let Some(df) = convert_i64_to_time(&mut self.0, Some("t")) {
+        if let Ok(df) = convert_i64_to_time(&mut self.0, Some("t")) {
             self.0 = df;
         }
     }
@@ -70,13 +72,28 @@ impl Into<ScoreDfSummary> for ScoreDf {
 pub struct ScoreDfConversionError;
 
 impl TryFrom<DataFrame> for ScoreDf {
-    type Error = ScoreDfConversionError;
+    type Error = PolarsError;
 
     fn try_from(value: DataFrame) -> Result<ScoreDf, Self::Error> {
         if let OutputType::points = infer_df_type(&value) {
             Ok(ScoreDf(value))
         } else {
-            Err(ScoreDfConversionError)
+            Err(PolarsError::SchemaMismatch(
+                format!("type infered to {:?}", infer_df_type(&value)).into(),
+            ))
         }
+    }
+}
+
+impl TryFrom<PathBuf> for ScoreDf {
+    type Error = PolarsError;
+
+    fn try_from(value: PathBuf) -> PolarsResult<ScoreDf> {
+        if value.is_dir() {
+            create_user_df(&vec![value], OutputType::points, None)?
+        } else {
+            read_csv_file(&value, OutputType::points)?
+        }
+        .try_into()
     }
 }

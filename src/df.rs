@@ -3,11 +3,8 @@ pub mod score;
 pub mod time_bound_df;
 
 use chrono::NaiveDate;
-use flex_rs_core::dht::CartesianCoordinates;
-use flex_rs_core::measurement::{Measurement, SensorPosition};
 use polars::prelude::*;
 
-use flex_rs_core;
 use uuid::Uuid;
 
 use std::fs::{self, DirEntry, File};
@@ -20,7 +17,6 @@ use crate::fs::{
 };
 use crate::misc::{get_num_of_sensors_from_file, infer_df_type, infer_file_type, is_new_schema};
 use crate::schema::{generate_flextail_schema, generate_points_schema, OutputType};
-use crate::series::ToSeries;
 
 use self::raw::transform_to_new_schema;
 
@@ -60,18 +56,12 @@ impl ColNameGenerator {
     }
 }
 
-fn read_arrow_file(_path: &PathBuf) -> Option<DataFrame> {
+fn read_arrow_file(_path: &PathBuf) -> PolarsResult<DataFrame> {
     todo!("arrow format support is not yet implemented");
 }
 
-fn read_parquet_file(path: &PathBuf) -> Option<DataFrame> {
-    match ParquetReader::new(&mut std::fs::File::open(path).unwrap()).finish() {
-        Ok(df) => Some(df),
-        Err(e) => {
-            println!("could not parse parquet file {e}");
-            None
-        }
-    }
+fn read_parquet_file(path: &PathBuf) -> PolarsResult<DataFrame> {
+    ParquetReader::new(&mut std::fs::File::open(path).unwrap()).finish()
 }
 
 fn any_value_to_i16(row: Vec<&AnyValue<'_>>) -> Vec<i16> {
@@ -86,7 +76,7 @@ fn any_value_to_i16(row: Vec<&AnyValue<'_>>) -> Vec<i16> {
         .collect()
 }
 
-pub fn read_input_file_into_df(path: PathBuf) -> Option<DataFrame> {
+pub fn read_input_file_into_df(path: PathBuf) -> PolarsResult<DataFrame> {
     match TableFormat::from_str(&path.to_str().unwrap()) {
         Ok(format) => match format {
             TableFormat::Csv => read_csv_file(&path, infer_file_type(&path)),
@@ -102,10 +92,12 @@ pub fn create_df_from_uuid(
     uuid: &Uuid,
     output_type: OutputType,
     date: Option<NaiveDate>,
-) -> Option<DataFrame> {
-    let folders = find_uuid_dirs(&parse_subdirs(&path), uuid);
+) -> PolarsResult<DataFrame> {
     create_user_df(
-        &folders.into_iter().map(|x| x.path).collect(),
+        &find_uuid_dirs(&parse_subdirs(&path), uuid)
+            .into_iter()
+            .map(|x| x.path)
+            .collect(),
         output_type,
         date,
     )
@@ -115,7 +107,7 @@ pub fn create_user_df<'a>(
     folders: &Vec<PathBuf>,
     output_type: OutputType,
     date: Option<NaiveDate>,
-) -> Option<DataFrame> {
+) -> PolarsResult<DataFrame> {
     let mut files: Vec<DirEntry> = folders
         .iter()
         .map(|x| {
@@ -232,8 +224,8 @@ pub fn write_df(path: &PathBuf, df: DataFrame) {
                     transform_to_new_schema(&df).unwrap()
                 } else {
                     match convert_i64_to_time(&mut df.clone(), None) {
-                        Some(df) => df,
-                        None => df.clone(),
+                        Ok(df) => df,
+                        Err(_) => df.clone(),
                     }
                 };
                 match ParquetWriter::new(file).finish(&mut df) {
@@ -258,52 +250,35 @@ pub fn convert_time_to_i64(df: &mut DataFrame, column: Option<&str>) -> Option<D
     None
 }
 
-pub fn convert_i64_to_time(df: &mut DataFrame, column: Option<&str>) -> Option<DataFrame> {
-    match df.with_column(
-        df.column(column.unwrap_or("t"))
-            .expect("did not find column t")
-            .cast(&DataType::Datetime(
-                polars::prelude::TimeUnit::Milliseconds,
-                Some("Europe/Berlin".into()),
-            ))
-            .expect("could not convert into datetime"),
-    ) {
-        Ok(e) => Some(e.clone()),
-        Err(err) => {
-            println!("{}", err);
-            None
-        }
-    }
+pub fn convert_i64_to_time(df: &mut DataFrame, column: Option<&str>) -> PolarsResult<DataFrame> {
+    Ok(df
+        .with_column(df.column(column.unwrap_or("t"))?.cast(&DataType::Datetime(
+            polars::prelude::TimeUnit::Milliseconds,
+            Some("Europe/Berlin".into()),
+        ))?)?
+        .clone())
 }
 
-pub fn read_points_csv(path: &PathBuf) -> Option<DataFrame> {
-    let reader = CsvReader::from_path(path)
-        .unwrap()
-        .with_schema(Arc::new(generate_points_schema()))
-        .with_ignore_errors(true)
-        .has_header(false);
-    match reader.finish() {
-        Ok(e) => match Some(e) {
-            Some(mut e) => convert_i64_to_time(&mut e, Some("t")),
-            None => None,
-        },
-        Err(e) => {
-            println!("failed to read points df {}", e);
-            None
-        }
-    }
+pub fn read_points_csv(path: &PathBuf) -> PolarsResult<DataFrame> {
+    convert_i64_to_time(
+        &mut CsvReader::from_path(path)?
+            .with_schema(Arc::new(generate_points_schema()))
+            .with_ignore_errors(true)
+            .has_header(false)
+            .finish()?,
+        Some("t"),
+    )
 }
 
-pub fn read_logs_csv(path: &PathBuf) -> Option<DataFrame> {
-    let reader = CsvReader::from_path(path)
-        .unwrap()
+pub fn read_logs_csv(path: &PathBuf) -> PolarsResult<DataFrame> {
+    CsvReader::from_path(path)?
         .with_ignore_errors(true)
         .infer_schema(Some(10))
-        .has_header(false);
-    reader.finish().ok()
+        .has_header(false)
+        .finish()
 }
 
-pub fn read_raw_csv(path: &PathBuf) -> Option<DataFrame> {
+pub fn read_raw_csv(path: &PathBuf) -> Result<DataFrame, PolarsError> {
     let schema = Some(generate_flextail_schema(get_num_of_sensors_from_file(
         &path,
     )));
@@ -314,19 +289,17 @@ pub fn read_raw_csv(path: &PathBuf) -> Option<DataFrame> {
         None => reader.infer_schema(Some(100)),
     };
 
-    match reader.has_header(false).finish().as_mut() {
-        Ok(e) => {
-            //println!("{}", e);
-            convert_i64_to_time(e, None)
-        }
-        Err(err) => {
-            println!("{}", err);
-            None
-        }
-    }
+    convert_i64_to_time(
+        reader
+            .has_header(false)
+            .finish()
+            .as_mut()
+            .map_err(|_| PolarsError::NoData("cannot get as mut".into()))?,
+        None,
+    )
 }
 
-fn read_csv_file(file: &PathBuf, output_type: OutputType) -> Option<DataFrame> {
+fn read_csv_file(file: &PathBuf, output_type: OutputType) -> PolarsResult<DataFrame> {
     match output_type {
         OutputType::points => read_points_csv(file),
         OutputType::raw => read_raw_csv(file),
@@ -399,7 +372,7 @@ fn validate_rows(df: DataFrame) -> SusLevel {
 
 pub fn validate_file(path: &PathBuf) -> SusLevel {
     match read_raw_csv(path) {
-        Some(df) => {
+        Ok(df) => {
             if df.is_empty() {
                 return SusLevel::TurboSus("empty".to_string());
             } else {

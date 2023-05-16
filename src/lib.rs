@@ -9,4 +9,5 @@ pub mod logs;
 pub mod feedback;
 pub mod vec_vec_utils;
 pub mod utils;
+pub mod clustered_data;
 mod grep_wrapper;

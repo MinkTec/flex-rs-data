@@ -22,7 +22,7 @@ use std::{
 };
 
 use chrono::NaiveDate;
-use polars::prelude::DataFrame;
+use polars::prelude::{DataFrame, PolarsResult};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -93,7 +93,7 @@ impl User {
     }
 
     pub fn gen_summary(&self) -> Option<UserScoreSummary> {
-        if let Some(df) = self.get_score_df() {
+        if let Ok(df) = self.get_score_df() {
             let days = df.get_days();
             Some(UserScoreSummary {
                 overall_summary: df.into(),
@@ -128,16 +128,17 @@ impl User {
         m.activities = Some(DailyActivities::from(self.dirs.clone()));
     }
 
-    pub fn get_df(&self, output_type: OutputType, date: Option<NaiveDate>) -> Option<DataFrame> {
+    pub fn get_df(
+        &self,
+        output_type: OutputType,
+        date: Option<NaiveDate>,
+    ) -> PolarsResult<DataFrame> {
         println!("creating user df of type: {:?}", output_type);
         timeit(|| create_user_df(&self.dirs.clone().to_paths(), output_type.clone(), date))
     }
 
-    pub fn get_score_df(&self) -> Option<ScoreDf> {
-        match self.get_df(OutputType::points, None) {
-            Some(df) => Some(ScoreDf::new(df)),
-            None => None,
-        }
+    pub fn get_score_df(&self) -> PolarsResult<ScoreDf> {
+        Ok(ScoreDf(self.get_df(OutputType::points, None)?))
     }
 
     pub fn find_in_logs(&self, regex: Regex) -> Vec<LogEntry> {
@@ -259,31 +260,10 @@ impl User {
         Ok(())
     }
 
-    pub fn get_activity_blocks(&self) -> Vec<(i64, i64)> {
-        let mut v = match self.get_df(OutputType::points, None) {
-            Some(df) => df
-                .column("t")
-                .expect("no t column in df")
-                .i64()
-                .unwrap()
-                .into_iter()
-                .filter(|x| x.is_some())
-                .map(|x| x.unwrap())
-                .collect(),
-            None => vec![],
-        };
-        v.sort();
-        let diff = v.windows(2).map(|x| x[1] - x[0]).collect::<Vec<i64>>();
-        let mut last_index: usize = 0;
-        let mut activity_blocks = vec![];
-
-        for i in 0..diff.len() {
-            if diff[i] > 10000 {
-                activity_blocks.push((v[last_index], v[i]));
-                last_index = i + 1;
-            }
+    pub fn get_activity_blocks(&self) -> Vec<Timespan> {
+        match self.get_df(OutputType::points, None) {
+            Ok(df) => ScoreDf(df).get_activity_timespans(300000),
+            Err(_) => vec![],
         }
-        activity_blocks.push((v[last_index], v.last().unwrap().clone()));
-        return activity_blocks;
     }
 }

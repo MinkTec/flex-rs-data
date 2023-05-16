@@ -1,10 +1,13 @@
+use std::path::PathBuf;
+
 use flex_rs_core::{
-    measurement::Measurement, sensor_angles::calc_angles_with_default_params,
-    FlextailPositionContainer,
+    case_position::CasePosition, measurement::Measurement,
+    sensor_angles::calc_angles_with_default_params, FlextailPositionContainer,
 };
 use polars::{frame::row::Row, lazy::dsl::concat_lst, prelude::*};
 
 use crate::{
+    clustered_data::NDHistogram,
     misc::{get_num_of_sensors, infer_df_type},
     schema::OutputType,
     series::{ToSeries, ToVec},
@@ -12,10 +15,9 @@ use crate::{
 
 use derive_more::Deref;
 
-use super::ColNameGenerator;
+use super::{create_user_df, read_csv_file, ColNameGenerator};
 
 pub fn transform_to_new_schema(df: &DataFrame) -> PolarsResult<DataFrame> {
-    dbg!(df.shape());
     if df.shape().1 == 6 {
         Ok(df.to_owned())
     } else {
@@ -31,22 +33,6 @@ pub fn transform_to_new_schema(df: &DataFrame) -> PolarsResult<DataFrame> {
                 col("t"),
             ])
             .collect()
-    }
-}
-
-#[derive(Debug)]
-pub struct RawDfConversionError;
-
-impl TryFrom<DataFrame> for RawDf {
-    type Error = RawDfConversionError;
-
-    fn try_from(df: DataFrame) -> Result<Self, Self::Error> {
-        if let OutputType::raw = infer_df_type(&df) {
-            if let Ok(df) = transform_to_new_schema(&df) {
-                return Ok(RawDf(df));
-            }
-        }
-        Err(RawDfConversionError)
     }
 }
 
@@ -79,6 +65,40 @@ impl RawDf {
 
     pub fn voltage(&self) -> &ChunkedArray<Int32Type> {
         self.0["v"].i32().unwrap()
+    }
+
+    pub fn bend(&self) -> Vec<f64> {
+        self.calc_angles()
+            .into_iter()
+            .map(|x| x.alpha.into_iter().take(9).sum())
+            .collect()
+    }
+
+    pub fn calc_posture_distribution(&self) -> NDHistogram {
+        let p = self.calc_angles();
+        NDHistogram::new(
+            vec![
+                p.iter()
+                    .map(|x| x.alpha.iter().take(9).sum())
+                    .collect::<Vec<f64>>(),
+                self.acc()
+                    .into_iter()
+                    .zip(p)
+                    .map(|x| {
+                        CasePosition::new(x.0.unwrap().to_vec_unchecked()).pitch
+                            - 1.5
+                                * x.1
+                                    .coords
+                                    .y
+                                    .last()
+                                    .unwrap()
+                                    .atan2(x.1.coords.z.last().unwrap().clone())
+                    })
+                    .collect(),
+            ],
+            5,
+            None,
+        )
     }
 
     pub fn calc_angles(&self) -> Vec<FlextailPositionContainer> {
@@ -114,15 +134,7 @@ impl RawDf {
             .collect::<Vec<[i32; 3]>>()[..]
             .windows(n)
             .map(|v| {
-                let mut x = 0;
-                let mut y = 0;
-                let mut z = 0;
-                for i in 0..n {
-                    x += v[i][0];
-                    y += v[i][1];
-                    z += v[i][2];
-                }
-                x as f64 / n as f64 + y as f64 / n as f64 + z as f64 / n as f64 / 3.0
+                (v.into_iter().map(|v| v[0] + v[1] + v[2]).sum::<i32>() as f64 / n as f64) / 8.0
             })
             .collect()
     }
@@ -144,5 +156,32 @@ impl RawDf {
                 _ => 0,
             },
         )
+    }
+}
+
+impl TryFrom<DataFrame> for RawDf {
+    type Error = PolarsError;
+
+    fn try_from(value: DataFrame) -> Result<RawDf, Self::Error> {
+        if let OutputType::raw = infer_df_type(&value) {
+            Ok(RawDf(transform_to_new_schema(&value)?))
+        } else {
+            Err(PolarsError::SchemaMismatch(
+                format!("type infered to {:?}", infer_df_type(&value)).into(),
+            ))
+        }
+    }
+}
+
+impl TryFrom<PathBuf> for RawDf {
+    type Error = PolarsError;
+
+    fn try_from(value: PathBuf) -> PolarsResult<RawDf> {
+        if value.is_dir() {
+            create_user_df(&vec![value], OutputType::raw, None)?
+        } else {
+            read_csv_file(&value, OutputType::raw)?
+        }
+        .try_into()
     }
 }
