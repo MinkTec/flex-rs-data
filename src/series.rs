@@ -175,6 +175,28 @@ impl ToVec<i64> for PolarsResult<&Series> {
     }
 }
 
+impl ToVec<NaiveDateTime> for Logical<DatetimeType, Int64Type> {
+    fn to_vec(&self) -> Vec<Option<NaiveDateTime>> {
+        self.0
+            .into_iter()
+            .map(|x| match x {
+                Some(i) => NaiveDateTime::from_timestamp_millis(i),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn to_vec_unchecked(&self) -> Vec<NaiveDateTime> {
+        self.0
+            .into_iter()
+            .map(|x| {
+                NaiveDateTime::from_timestamp_millis(x.expect("could not unwrap datetime int"))
+                    .expect("invalid datetime int")
+            })
+            .collect()
+    }
+}
+
 // converts to time (expects unix timestamps)
 impl ToSeries for Vec<&Option<i64>> {
     fn to_series(&self) -> Series {
@@ -208,7 +230,6 @@ impl ToSeries for Vec<&Vec<f64>> {
         ListChunked::from_iter(self.into_iter().map(|v| v.to_series())).into_series()
     }
 }
-
 
 impl ToSeries for Vec<i16> {
     fn to_series(&self) -> Series {

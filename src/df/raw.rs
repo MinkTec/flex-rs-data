@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{f64::consts::PI, path::PathBuf};
 
 use flex_rs_core::{
     case_position::CasePosition, measurement::Measurement,
@@ -15,10 +15,10 @@ use crate::{
 
 use derive_more::Deref;
 
-use super::{create_user_df, read_csv_file, ColNameGenerator};
+use super::{create_user_df, create_user_df_from_files, read_csv_file, ColNameGenerator};
 
 pub fn transform_to_new_schema(df: &DataFrame) -> PolarsResult<DataFrame> {
-    if df.shape().1 == 6 {
+    if df.shape().1 <= 7 {
         Ok(df.to_owned())
     } else {
         let n = get_num_of_sensors(df.shape().1);
@@ -74,7 +74,7 @@ impl RawDf {
             .collect()
     }
 
-    pub fn calc_posture_distribution(&self) -> NDHistogram {
+    pub fn calc_posture_distribution(&self, n: usize) -> NDHistogram {
         let p = self.calc_angles();
         NDHistogram::new(
             vec![
@@ -95,9 +95,15 @@ impl RawDf {
                                     .atan2(x.1.coords.z.last().unwrap().clone())
                     })
                     .collect(),
-            ],
-            5,
-            None,
+            ]
+            .into_iter()
+            .rev()
+            .collect(),
+            n,
+            Some(vec![
+                Some((-60.0 * PI / 180.0, 60.0 * PI / 180.0)),
+                Some((-35.0 * PI / 180.0, 35.0 * PI / 180.0)),
+            ]),
         )
     }
 
@@ -183,5 +189,13 @@ impl TryFrom<PathBuf> for RawDf {
             read_csv_file(&value, OutputType::raw)?
         }
         .try_into()
+    }
+}
+
+impl TryFrom<Vec<PathBuf>> for RawDf {
+    type Error = PolarsError;
+
+    fn try_from(files: Vec<PathBuf>) -> PolarsResult<RawDf> {
+        create_user_df_from_files(files, OutputType::raw, None)?.try_into()
     }
 }

@@ -17,7 +17,7 @@ pub trait TimeBoundDf {
     fn get_days(&self) -> Vec<DatedData<Box<Self>>>;
 }
 
-trait TimeColumn {
+pub trait TimeColumn {
     fn time(&self) -> &Logical<DatetimeType, Int64Type>;
 }
 
@@ -33,7 +33,7 @@ impl TimeColumn for ScoreDf {
     }
 }
 
-trait Between {
+pub trait Between {
     fn between(&self, ts: Timespan) -> Self;
 }
 
@@ -98,7 +98,7 @@ where
             }
         }
         activity_blocks.push((v[last_index], v.last().unwrap().clone()).into());
-        dbg!(activity_blocks)
+        activity_blocks
     }
 
     fn split_into_time_chunks(&self, duration: i64) -> Vec<Box<Self>> {
@@ -118,13 +118,14 @@ where
                         time: x,
                         data: Box::new(self.between(x.into())),
                     };
-                    dbg!(if r.data.height() > 0 { Some(r) } else { None })
+                    if r.data.height() > 0 {
+                        Some(r)
+                    } else {
+                        None
+                    }
                 })
                 .collect(),
-            None => {
-                dbg!(self);
-                vec![]
-            }
+            None => vec![],
         }
     }
 }

@@ -1,4 +1,5 @@
-use derive_more::Deref;
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 
 use crate::utils::stats_utils::Extrema;
@@ -12,7 +13,7 @@ pub struct NDHistogram {
 impl NDHistogram {
     pub fn n(&self) -> usize {
         match self.borders.first() {
-            Some(v) => v.len(),
+            Some(v) => v.len() - 1,
             None => 0,
         }
     }
@@ -61,13 +62,17 @@ impl NDHistogram {
 
         let mut coords: Vec<usize> = vec![0; data.len()];
 
+        let max_index = baskets.len();
+
         for i in 0..data.first().unwrap().len() {
             for d in 0..data.len() {
                 coords[d] = (((data[d][i] - borders[d].first().unwrap()) / deltas[d]) * (n as f64))
                     .floor() as usize;
             }
-            let index: usize = NDCoords(coords.clone()).into();
-            baskets[index] += 1;
+            let index: usize = NDCoords(coords.clone(), n).into();
+            if index < max_index {
+                baskets[index] += 1;
+            }
         }
 
         NDHistogram { baskets, borders }
@@ -81,15 +86,35 @@ impl NDHistogram {
     }
 }
 
-#[derive(Debug, Deref)]
-struct NDCoords(Vec<usize>);
+impl Display for NDHistogram {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            self.baskets
+                .chunks(self.n())
+                .into_iter()
+                .map(|x| x
+                    .into_iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<String>>()
+                    .join(","))
+                .collect::<Vec<String>>()
+                .join("\n")
+        )
+    }
+}
+
+#[derive(Debug)]
+struct NDCoords(Vec<usize>, usize);
 
 impl Into<usize> for NDCoords {
     fn into(self) -> usize {
-        self.iter()
+        self.0
+            .iter()
             .rev()
             .enumerate()
-            .map(|x| x.1 * self.len().pow(x.0 as u32))
+            .map(|x| x.1 * self.1.pow(x.0 as u32))
             .sum()
     }
 }
@@ -100,9 +125,11 @@ mod tests {
 
     #[test]
     fn test() {
-        let inner = (1..100000).map(|x| x as f64).collect::<Vec<f64>>();
+        let inner = (1..10000000).map(|x| x as f64).collect::<Vec<f64>>();
 
         let h = NDHistogram::new(vec![inner.clone(), inner], 3, None);
+
+        println!("{}", h);
 
         assert_eq!(
             NDHistogram {

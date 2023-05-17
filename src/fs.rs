@@ -261,7 +261,11 @@ pub fn find_first_activity(user_dirs: &Vec<PathBuf>) -> Option<NaiveDateTime> {
     NaiveDateTime::from_timestamp_millis(
         get_subdirs(user_dirs, OutputType::logs)
             .into_iter()
-            .map(|x| path_to_begin_timestamp(&x).parse::<i64>().unwrap_or(0))
+            .map(|x| {
+                path_to_begin_timestamp(&x.path())
+                    .parse::<i64>()
+                    .unwrap_or(0)
+            })
             .reduce(|a, b| a.max(b))
             .unwrap_or(0),
     )
@@ -283,7 +287,7 @@ pub fn find_sensor_names(files: Vec<DirEntry>) -> HashSet<String> {
     set
 }
 
-pub fn concat_csv_files(paths: Vec<DirEntry>) -> PathBuf {
+pub fn concat_csv_files(paths: &Vec<PathBuf>) -> PathBuf {
     let mut temp_dir = std::env::temp_dir();
     let uuid = Uuid::new_v4().to_string();
     temp_dir.push(uuid);
@@ -293,7 +297,7 @@ pub fn concat_csv_files(paths: Vec<DirEntry>) -> PathBuf {
         .open(temp_dir.clone())
         .expect("could not open temp file");
     for path in paths {
-        let mut f2 = fs::OpenOptions::new().read(true).open(path.path()).unwrap();
+        let mut f2 = fs::OpenOptions::new().read(true).open(path).unwrap();
         match std::io::copy(&mut f2, &mut file) {
             Ok(_) => {}
             Err(_) => {}
@@ -302,9 +306,8 @@ pub fn concat_csv_files(paths: Vec<DirEntry>) -> PathBuf {
     temp_dir
 }
 
-fn path_to_begin_timestamp(f: &DirEntry) -> String {
+fn path_to_begin_timestamp(f: &PathBuf) -> String {
     let i: String = f
-        .path()
         .file_name()
         .expect("no filename found")
         .to_str()
@@ -346,7 +349,7 @@ impl SinceEpoch for NaiveDate {
     }
 }
 
-pub fn filter_files_by_date(files: Vec<DirEntry>, date: NaiveDate) -> Vec<DirEntry> {
+pub fn filter_files_by_date(files: &Vec<PathBuf>, date: NaiveDate) -> Vec<PathBuf> {
     let begin = date.ms_since_epoch();
     let end = date.succ_opt().unwrap().ms_since_epoch();
     files
@@ -355,5 +358,6 @@ pub fn filter_files_by_date(files: Vec<DirEntry>, date: NaiveDate) -> Vec<DirEnt
             let b = path_to_begin_timestamp(x).parse::<i64>().unwrap_or(0);
             begin <= b && b <= end
         })
+        .map(|x| x.to_owned())
         .collect()
 }

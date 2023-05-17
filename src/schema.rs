@@ -95,7 +95,15 @@ pub struct RawDfJS {
 impl From<RawDf> for RawDfJS {
     fn from(df: RawDf) -> Self {
         RawDfJS {
-            t: df.time().to_vec(),
+            t: df
+                .time()
+                .to_vec()
+                .into_iter()
+                .map(|x| match x {
+                    Some(time) => Some(time.timestamp_millis()),
+                    _ => None,
+                })
+                .collect(),
             left: df.left().to_vec(),
             right: df.right().to_vec(),
             acc: df.acc().to_vec(),

@@ -103,29 +103,42 @@ pub fn create_df_from_uuid(
     )
 }
 
+pub fn create_user_df_from_files(
+    files: Vec<PathBuf>,
+    output_type: OutputType,
+    date: Option<NaiveDate>,
+) -> PolarsResult<DataFrame> {
+
+    let files = if date.is_some() {
+        filter_files_by_date(&files, date.unwrap())
+    } else {
+        files
+    };
+
+    let new_path = concat_csv_files(&files);
+    let df = read_csv_file(&new_path, output_type);
+    fs::remove_file(new_path).expect("could not delete file");
+    return df;
+}
+
 pub fn create_user_df<'a>(
     folders: &Vec<PathBuf>,
     output_type: OutputType,
     date: Option<NaiveDate>,
 ) -> PolarsResult<DataFrame> {
-    let mut files: Vec<DirEntry> = folders
-        .iter()
-        .map(|x| {
-            let mut p = PathBuf::from(x);
-            p.push(output_type.subdir());
-            list_files(p as PathBuf)
-        })
-        .flatten()
-        .collect();
-
-    if date.is_some() {
-        files = filter_files_by_date(files, date.unwrap())
-    }
-
-    let new_path = concat_csv_files(files);
-    let df = read_csv_file(&new_path, output_type);
-    fs::remove_file(new_path).expect("could not delete file");
-    return df;
+    create_user_df_from_files(
+        folders
+            .iter()
+            .map(|x| {
+                let mut p = PathBuf::from(x);
+                p.push(output_type.subdir());
+                list_files(p as PathBuf).into_iter().map(|x| x.path())
+            })
+            .flatten()
+            .collect(),
+        output_type,
+        date,
+    )
 }
 
 fn flatten_df(df: DataFrame) -> Result<DataFrame, PolarsError> {
