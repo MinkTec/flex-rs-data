@@ -31,7 +31,7 @@ impl ScoreDf {
         ScoreDfJS::from(self.0)
     }
 
-    fn summary(self) -> ScoreDfSummary {
+    pub fn summary(&self) -> ScoreDfSummary {
         let col = self.0.column("score").unwrap();
 
         ScoreDfSummary {

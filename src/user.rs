@@ -1,18 +1,22 @@
 pub mod daily_activities;
 pub mod feedback;
 pub mod metadata;
+pub mod stats;
 
+use crate::df::raw::RawDf;
 use crate::{
     df::score::{ScoreDf, ScoreDfSummary},
     feedback::{BackpainFeedback, RectifyFeedback},
     fs::{list_files, MatchStringPattern},
     logs::{find_in_logs, LogEntry},
-    misc::{parse_dart_timestring, timeit},
+    misc::parse_dart_timestring,
     user::daily_activities::DailyActivities,
 };
 use anyhow::Result;
+use rayon::prelude::*;
 use regex::Regex;
 
+use std::sync::{Arc, Mutex};
 use std::{
     cell::RefCell,
     collections::HashSet,
@@ -37,9 +41,8 @@ use crate::{
     schema::OutputType,
 };
 
-use super::df::time_bound_df::TimeBoundDf;
-
 use self::{feedback::FeedbackType, metadata::UserMetadata};
+use super::df::time_bound_df::TimeBoundDf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserScoreSummary {
@@ -47,11 +50,32 @@ pub struct UserScoreSummary {
     pub daily_summaries: Vec<DatedData<ScoreDfSummary>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+pub type Memo<T> = Arc<Mutex<RefCell<Option<T>>>>;
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct User {
     pub id: Uuid,
     pub dirs: HashSet<ParsedDir>,
     pub metadata: RefCell<UserMetadata>,
+    #[serde(skip)]
+    raw_df: Memo<RawDf>,
+    #[serde(skip)]
+    last_raw_df_date: Memo<NaiveDate>,
+    #[serde(skip)]
+    score_df: Memo<ScoreDf>,
+}
+
+impl Clone for User {
+    fn clone(&self) -> Self {
+        return User {
+            id: self.id.clone(),
+            dirs: self.dirs.clone(),
+            metadata: self.metadata.clone(),
+            raw_df: Arc::new(Mutex::new(RefCell::new(None))),
+            score_df: Arc::new(Mutex::new(RefCell::new(None))),
+            last_raw_df_date: Arc::new(Mutex::new(RefCell::new(None))),
+        };
+    }
 }
 
 pub fn gen_users(path: &PathBuf, start_from: Option<NaiveDate>) -> Vec<User> {
@@ -70,6 +94,9 @@ impl User {
             id: uuid,
             dirs: HashSet::new(),
             metadata: RefCell::new(UserMetadata::new()),
+            raw_df: Arc::new(Mutex::new(RefCell::new(None))),
+            score_df: Arc::new(Mutex::new(RefCell::new(None))),
+            last_raw_df_date: Arc::new(Mutex::new(RefCell::new(None))),
         }
     }
 
@@ -89,31 +116,33 @@ impl User {
                         }
                     })),
             ),
+            raw_df: Arc::new(Mutex::new(RefCell::new(None))),
+            score_df: Arc::new(Mutex::new(RefCell::new(None))),
+            last_raw_df_date: Arc::new(Mutex::new(RefCell::new(None))),
         }
     }
 
     pub fn gen_summary(&self) -> Option<UserScoreSummary> {
-        if let Ok(df) = self.get_score_df() {
-            let days = df.get_days();
-            Some(UserScoreSummary {
-                overall_summary: df.into(),
-                daily_summaries: days
-                    .into_iter()
-                    .filter_map(|x| {
-                        if (*x.data).shape().0 > 0 {
-                            Some(DatedData {
-                                time: x.time,
-                                data: (*x.data).into(),
-                            })
-                        } else {
-                            None
-                        }
+        let df = self.get_score_df();
+        let summaries = df
+            .get_days()
+            .par_iter()
+            .filter_map(|x| {
+                if (*x.data).shape().0 > 0 {
+                    Some(DatedData {
+                        time: x.time,
+                        data: x.data.summary(),
                     })
-                    .collect(),
+                } else {
+                    None
+                }
             })
-        } else {
-            None
-        }
+            .collect::<Vec<DatedData<ScoreDfSummary>>>();
+
+        Some(UserScoreSummary {
+            overall_summary: df.summary(),
+            daily_summaries: summaries,
+        })
     }
 
     pub fn fill_user(&mut self, paths: &Vec<ParsedDir>) {
@@ -133,12 +162,29 @@ impl User {
         output_type: OutputType,
         date: Option<NaiveDate>,
     ) -> PolarsResult<DataFrame> {
-        println!("creating user df of type: {:?}", output_type);
-        timeit(|| create_user_df(&self.dirs.clone().to_paths(), output_type.clone(), date))
+        create_user_df(&self.dirs.clone().to_paths(), output_type.clone(), date)
     }
 
-    pub fn get_score_df(&self) -> PolarsResult<ScoreDf> {
-        Ok(ScoreDf(self.get_df(OutputType::points, None)?))
+    pub fn get_score_df(&self) -> ScoreDf {
+        let guard = self.score_df.lock().unwrap();
+        let mut cache = guard.borrow_mut();
+
+        if cache.is_none() {
+            *cache = Some(ScoreDf(self.get_df(OutputType::points, None).unwrap()));
+        }
+
+        ScoreDf(cache.as_deref().unwrap().clone())
+    }
+
+    pub fn get_raw_df(&self, date: Option<NaiveDate>) -> RawDf {
+        let guard = self.raw_df.lock().unwrap();
+        let mut cache = guard.borrow_mut();
+
+        if cache.is_none() || *self.last_raw_df_date.lock().unwrap().borrow() != date {
+            *cache = Some(RawDf(self.get_df(OutputType::raw, date).unwrap()));
+        }
+
+        RawDf(cache.as_deref().unwrap().clone())
     }
 
     pub fn find_in_logs(&self, regex: Regex) -> Vec<LogEntry> {
@@ -255,8 +301,6 @@ impl User {
 
         m.activities = Some(self.get_daily_activities());
 
-        //m.active_since = Some()
-
         Ok(())
     }
 
@@ -264,6 +308,26 @@ impl User {
         match self.get_df(OutputType::points, None) {
             Ok(df) => ScoreDf(df).get_activity_timespans(300000),
             Err(_) => vec![],
+        }
+    }
+}
+
+impl Into<ScoreDfSummary> for Vec<ScoreDfSummary> {
+    fn into(self) -> ScoreDfSummary {
+        let iter = self.iter();
+        ScoreDfSummary {
+            average_score: iter.clone().map(|x| x.average_score).sum::<f64>() / (self.len() as f64),
+            duration: iter.clone().map(|x| x.duration).sum(),
+            min: iter
+                .clone()
+                .map(|x| x.min)
+                .reduce(|a, b| if a > b { b } else { a })
+                .unwrap(),
+            max: iter
+                .clone()
+                .map(|x| x.max)
+                .reduce(|a, b| if a < b { b } else { a })
+                .unwrap(),
         }
     }
 }

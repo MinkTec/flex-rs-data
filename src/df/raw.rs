@@ -6,6 +6,8 @@ use flex_rs_core::{
 };
 use polars::{frame::row::Row, lazy::dsl::concat_lst, prelude::*};
 
+use rayon::prelude::*;
+
 use crate::{
     clustered_data::NDHistogram,
     misc::{get_num_of_sensors, infer_df_type},
@@ -78,12 +80,13 @@ impl RawDf {
         let p = self.calc_angles();
         NDHistogram::new(
             vec![
-                p.iter()
+                p.par_iter()
                     .map(|x| x.alpha.iter().take(9).sum())
                     .collect::<Vec<f64>>(),
                 self.acc()
                     .into_iter()
                     .zip(p)
+                    .par_bridge()
                     .map(|x| {
                         CasePosition::new(x.0.unwrap().to_vec_unchecked()).pitch
                             - 1.5
@@ -111,6 +114,7 @@ impl RawDf {
         self.left()
             .into_iter()
             .zip(self.right())
+            .par_bridge()
             .map(|x| {
                 calc_angles_with_default_params(
                     &x.0.unwrap().to_vec_unchecked(),
@@ -135,10 +139,10 @@ impl RawDf {
 
     pub fn calc_movement_score(&self, n: usize) -> Vec<f64> {
         self.acc().to_vec_unchecked()[..]
-            .windows(2)
+            .windows(2).par_bridge()
             .map(|x| [x[1][0] - x[0][0], x[1][1] - x[0][1], x[1][2] - x[0][2]].map(|x| x.abs()))
             .collect::<Vec<[i32; 3]>>()[..]
-            .windows(n)
+            .windows(n).par_bridge()
             .map(|v| {
                 (v.into_iter().map(|v| v[0] + v[1] + v[2]).sum::<i32>() as f64 / n as f64) / 8.0
             })

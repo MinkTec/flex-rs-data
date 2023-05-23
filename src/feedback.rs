@@ -5,7 +5,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use serde_json::Number;
+use serde_json::{to_string, Number};
 
 #[allow(
     dead_code,
@@ -128,10 +128,7 @@ eMail: {:?}"#,
     }
 }
 
-#[allow(
-    non_snake_case,
-    non_camel_case_types
-)]
+#[allow(non_snake_case, non_camel_case_types)]
 #[derive(Debug, Deserialize, Serialize)]
 enum VibrationIsValue {
     ist_gut_Genug,
@@ -143,10 +140,7 @@ enum VibrationIsValue {
     na,
 }
 
-#[allow(
-    non_snake_case,
-    non_camel_case_types
-)]
+#[allow(non_snake_case, non_camel_case_types)]
 #[derive(Debug, Deserialize, Serialize)]
 enum SpeedOptions {
     toSlow,
@@ -155,10 +149,7 @@ enum SpeedOptions {
     na,
 }
 
-#[allow(
-    non_snake_case,
-    non_camel_case_types
-)]
+#[allow(non_snake_case, non_camel_case_types)]
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 enum MotivationOptions {
@@ -198,10 +189,7 @@ enum ShirtWearLocation {
     Na(Option<bool>),
 }
 
-#[allow(
-    non_snake_case,
-    non_camel_case_types
-)]
+#[allow(non_snake_case, non_camel_case_types)]
 #[derive(Debug, Deserialize, Serialize)]
 enum AppUsability {
     intelligible,
@@ -247,10 +235,7 @@ enum RectifyDuration {
     Eight,
 }
 
-#[allow(
-    non_snake_case,
-    non_camel_case_types
-)]
+#[allow(non_snake_case, non_camel_case_types)]
 #[derive(Debug, Deserialize, Serialize)]
 enum RectifyBenefit {
     veryUseful,
@@ -496,10 +481,7 @@ enum IfBackpainWhere {
     Na,
 }
 
-#[allow(
-    non_snake_case,
-    non_camel_case_types
-)]
+#[allow(non_snake_case, non_camel_case_types)]
 #[derive(Debug, Deserialize, Serialize, Hash, PartialEq, Eq)]
 enum WalkingPain {
     no,
@@ -642,8 +624,8 @@ pub fn parse_feedback(feedback: &str) {
 pub struct FeedbackCsv {}
 
 impl FeedbackCsv {
-    pub fn print_header() {
-        println!("shirtComfort, sensorIsMoving, shirtWearLocations, shirtWearDuration, shirtWearWeekly, rectifyDuration, appUsability, rectifyBenefit, vibrationBenefit, saturationBenefit, evaluationBenefit, miniExerciseBenefit, trainingBenefit, otherFeatureWishes, vibrationLevelPref, vibrationMissingWhen, vibrationIs, otherWishes, reductionWhileSitting, increaseWhileMoving, occuredBugs, buyRectify, rectifyPrice, rectifyPricespan, gender, age, weight, bodyHeight, backpainFrequency, ifBackpainWhere, ifBackpainWhereLR, backpainLevel, walkingPain, walkingPainLevel, painProblems, postureSelf, mobilifySelf, movementAtWork, movementFreeTime, standingDesk, sittingStandingSwitch");
+    pub fn get_header() -> String {
+        "shirtComfort, sensorIsMoving, shirtWearLocations, shirtWearDuration, shirtWearWeekly, rectifyDuration, appUsability, rectifyBenefit, vibrationBenefit, saturationBenefit, evaluationBenefit, miniExerciseBenefit, trainingBenefit, otherFeatureWishes, vibrationLevelPref, vibrationMissingWhen, vibrationIs, otherWishes, reductionWhileSitting, increaseWhileMoving, occuredBugs, buyRectify, rectifyPrice, rectifyPricespan, gender, age, weight, bodyHeight, backpainFrequency, ifBackpainWhere, ifBackpainWhereLR, backpainLevel, walkingPain, walkingPainLevel, painProblems, postureSelf, mobilifySelf, movementAtWork, movementFreeTime, standingDesk, sittingStandingSwitch".to_string()
     }
 }
 

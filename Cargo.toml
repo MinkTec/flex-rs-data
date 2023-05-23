@@ -23,3 +23,4 @@ timespan = { path = "../timespan" }
 num = "0.4.0"
 derive_more = "0.99.17"
 ndarray = { version = "0.15.6", features = ["serde"] }
+rayon = "1.7.0"

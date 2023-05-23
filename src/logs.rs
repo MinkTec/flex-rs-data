@@ -6,10 +6,10 @@ use std::{fs, path::PathBuf, str::FromStr};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogEntry {
-    timestamp: NaiveDateTime,
-    logger: String,
-    log_level: LogLevel,
-    message: String,
+    pub timestamp: NaiveDateTime,
+    pub logger: String,
+    pub log_level: LogLevel,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
