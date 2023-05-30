@@ -279,7 +279,7 @@ pub fn find_sensor_names(files: Vec<DirEntry>) -> HashSet<String> {
             if let Some(matches) = sensor_regex.captures(content.as_str()) {
                 if let Some(first) = matches.get(0) {
                     set.insert(first.as_str().to_string());
-                    return set;
+                    //return set;
                 }
             }
         }

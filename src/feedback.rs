@@ -4,8 +4,9 @@ use std::{
     str::FromStr,
 };
 
+use enum_iterator::{all, Sequence};
 use serde::{Deserialize, Serialize};
-use serde_json::{to_string, Number};
+use serde_json::Number;
 
 #[allow(
     dead_code,
@@ -14,7 +15,7 @@ use serde_json::{to_string, Number};
     enum_intrinsics_non_enums,
     non_camel_case_types
 )]
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct RectifyFeedback {
     shirtComfort: ShirtComfort,
     sensorIsMoving: SensorMovement,
@@ -32,13 +33,13 @@ pub struct RectifyFeedback {
     evaluationBenefit: Number,
     miniExerciseBenefit: Number,
     trainingBenefit: Number,
-    otherFeatureWishes: Option<String>,
+    pub otherFeatureWishes: Option<String>,
 
     // Vibrationsalarm
     vibrationLevelPref: Number,
     vibrationMissingWhen: Option<String>,
     vibrationIs: VibrationIsValue,
-    otherWishes: Option<String>,
+    pub otherWishes: Option<String>,
 
     // Score
     reductionWhileSitting: SpeedOptions,
@@ -48,7 +49,7 @@ pub struct RectifyFeedback {
     buyRectify: BuyRectify,
     rectifyPrice: Number,
     rectifyPricespan: Option<String>,
-    eMail: Option<String>,
+    pub eMail: Option<String>,
 }
 
 impl FromStr for RectifyFeedback {
@@ -129,7 +130,7 @@ eMail: {:?}"#,
 }
 
 #[allow(non_snake_case, non_camel_case_types)]
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Sequence, PartialEq, Clone, Copy)]
 enum VibrationIsValue {
     ist_gut_Genug,
     vibriert_unerwartet,
@@ -141,7 +142,7 @@ enum VibrationIsValue {
 }
 
 #[allow(non_snake_case, non_camel_case_types)]
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Sequence, PartialEq, Clone, Copy)]
 enum SpeedOptions {
     toSlow,
     good,
@@ -150,7 +151,7 @@ enum SpeedOptions {
 }
 
 #[allow(non_snake_case, non_camel_case_types)]
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Sequence, PartialEq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 enum MotivationOptions {
     Very,
@@ -160,7 +161,7 @@ enum MotivationOptions {
     Na,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Sequence, PartialEq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 enum ShirtComfort {
     Comfy,
@@ -169,7 +170,7 @@ enum ShirtComfort {
     Na,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Sequence, PartialEq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 enum SensorMovement {
     Annoying,
@@ -190,7 +191,7 @@ enum ShirtWearLocation {
 }
 
 #[allow(non_snake_case, non_camel_case_types)]
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Sequence, PartialEq, Clone, Copy)]
 enum AppUsability {
     intelligible,
     slightlyComplicated,
@@ -198,7 +199,7 @@ enum AppUsability {
     na,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Sequence, PartialEq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 enum OccuredBugs {
     No,
@@ -208,7 +209,7 @@ enum OccuredBugs {
     Na,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Sequence, PartialEq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 enum ShirtWearDuration {
     Four,
@@ -218,7 +219,7 @@ enum ShirtWearDuration {
     Na,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Sequence, PartialEq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 enum ShirtWearWeekly {
     One,
@@ -228,7 +229,7 @@ enum ShirtWearWeekly {
     Na,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Sequence, PartialEq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 enum RectifyDuration {
     Four,
@@ -236,7 +237,7 @@ enum RectifyDuration {
 }
 
 #[allow(non_snake_case, non_camel_case_types)]
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Sequence, PartialEq, Clone, Copy)]
 enum RectifyBenefit {
     veryUseful,
     useful,
@@ -245,7 +246,7 @@ enum RectifyBenefit {
     na,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Sequence, PartialEq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 enum BuyRectify {
     Yes,
@@ -260,7 +261,7 @@ enum BuyRectify {
     enum_intrinsics_non_enums,
     non_camel_case_types
 )]
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct BackpainFeedback {
     gender: Gender,
     age: Number,
@@ -301,6 +302,10 @@ impl FromStr for BackpainFeedback {
     type Err = FeedbackParseError;
 
     fn from_str(s: &str) -> Result<Self, FeedbackParseError> {
+        YesNo::Yes.number();
+        YesNo::No.number();
+        YesNo::Na.number();
+
         serde_json::from_str::<BackpainFeedback>(s).map_err(|e| {
             println!("{}", e);
             FeedbackParseError
@@ -424,7 +429,7 @@ impl CustomPrint for Number {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Sequence, PartialEq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 enum Gender {
     Male,
@@ -433,7 +438,7 @@ enum Gender {
     Undefined,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Sequence, PartialEq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 enum BackpainLevel {
     No,
@@ -445,7 +450,7 @@ enum BackpainLevel {
     Na,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Sequence, PartialEq, Clone, Copy)]
 enum LeftRightRange {
     OnlyLeft,
     MostlyLeft,
@@ -471,7 +476,7 @@ impl From<Number> for LeftRightRange {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Hash, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Serialize, Hash, PartialEq, Eq, Clone)]
 #[serde(rename_all = "lowercase")]
 enum IfBackpainWhere {
     Cervical,
@@ -482,7 +487,7 @@ enum IfBackpainWhere {
 }
 
 #[allow(non_snake_case, non_camel_case_types)]
-#[derive(Debug, Deserialize, Serialize, Hash, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Serialize, Hash, PartialEq, Eq, Clone)]
 enum WalkingPain {
     no,
     back,
@@ -495,7 +500,7 @@ enum WalkingPain {
     na,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Sequence, PartialEq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 enum PainProblems {
     No,
@@ -506,7 +511,7 @@ enum PainProblems {
     Na,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Sequence, PartialEq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 enum AutonomyLevel {
     Yes,
@@ -515,7 +520,7 @@ enum AutonomyLevel {
     Na,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Sequence, PartialEq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 enum SittingStandingSwitch {
     Never,
@@ -526,7 +531,7 @@ enum SittingStandingSwitch {
     Na,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Sequence, PartialEq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 enum StandingDesk {
     Yes,
@@ -535,7 +540,7 @@ enum StandingDesk {
     Na,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Sequence, PartialEq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 enum YesNo {
     Yes,
@@ -543,25 +548,51 @@ enum YesNo {
     Na,
 }
 
+trait Numbering {
+    fn number(&self) -> i8;
+}
+
+impl<T> Numbering for T
+where
+    T: Serialize + Sequence + PartialEq + Copy,
+{
+    fn number(&self) -> i8 {
+        let (i, val) = all::<T>()
+            .enumerate()
+            .find(|a| a.1 == self.clone())
+            .unwrap();
+
+        if serde_json::to_string(&val)
+            .unwrap()
+            .to_lowercase()
+            .contains("na")
+        {
+            -1
+        } else {
+            i as i8
+        }
+    }
+}
+
 const AGE_RANGE: &[&str] = &[
-    "< 10 Jahre",
-    "10 - 14 Jahre",
-    "15 - 19 Jahre",
-    "20 - 24 Jahre",
-    "25 - 29 Jahre",
-    "30 - 34 Jahre",
-    "35 - 39 Jahre",
-    "40 - 44 Jahre",
-    "45 - 49 Jahre",
-    "50 - 54 Jahre",
-    "55 - 59 Jahre",
-    "60 - 64 Jahre",
-    "65 - 69 Jahre",
-    "70 - 74 Jahre",
-    "75 - 79 Jahre",
-    "80 - 84 Jahre",
-    "85 - 90 Jahre",
-    "> 90 Jahre",
+    "< 10 years",
+    "10 - 14 years",
+    "15 - 19 years",
+    "20 - 24 years",
+    "25 - 29 years",
+    "30 - 34 years",
+    "35 - 39 years",
+    "40 - 44 years",
+    "45 - 49 years",
+    "50 - 54 years",
+    "55 - 59 years",
+    "60 - 64 years",
+    "65 - 69 years",
+    "70 - 74 years",
+    "75 - 79 years",
+    "80 - 84 years",
+    "85 - 90 years",
+    "> 90 years",
 ];
 
 const WEIGTH: &[&str] = &[
@@ -601,7 +632,7 @@ const HEIGHT: &[&str] = &[
     "170 - 179 cm",
     "180 - 189 cm",
     "190 - 200 cm",
-    "> 2 m",
+    "> 200 cm",
 ];
 
 pub fn parse_feedback(feedback: &str) {

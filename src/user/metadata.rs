@@ -1,7 +1,11 @@
 use super::daily_activities::DailyActivities;
-use crate::fs::{AppVersion, PhoneModel};
+use crate::{
+    feedback::{BackpainFeedback, RectifyFeedback},
+    fs::{AppVersion, PhoneModel},
+};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
+use timespan::TimedData;
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -13,6 +17,8 @@ pub struct UserMetadata {
     pub phone: Option<PhoneModel>,
     pub app_version: Option<AppVersion>,
     pub activities: Option<DailyActivities>,
+    pub app_feedback: Option<TimedData<RectifyFeedback>>,
+    pub backpain_feedback: Option<TimedData<BackpainFeedback>>,
 }
 
 impl UserMetadata {
@@ -25,6 +31,8 @@ impl UserMetadata {
             phone: None,
             app_version: None,
             activities: None,
+            app_feedback: None,
+            backpain_feedback: None,
         }
     }
 

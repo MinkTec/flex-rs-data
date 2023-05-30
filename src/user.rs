@@ -4,11 +4,13 @@ pub mod metadata;
 pub mod stats;
 
 use crate::df::raw::RawDf;
+use crate::df::write_df;
+use crate::logs::Logs;
 use crate::{
     df::score::{ScoreDf, ScoreDfSummary},
     feedback::{BackpainFeedback, RectifyFeedback},
     fs::{list_files, MatchStringPattern},
-    logs::{find_in_logs, LogEntry},
+    logs::LogEntry,
     misc::parse_dart_timestring,
     user::daily_activities::DailyActivities,
 };
@@ -16,6 +18,9 @@ use anyhow::Result;
 use rayon::prelude::*;
 use regex::Regex;
 
+use std::fs::File;
+use std::io::Write;
+use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use std::{
     cell::RefCell,
@@ -50,7 +55,30 @@ pub struct UserScoreSummary {
     pub daily_summaries: Vec<DatedData<ScoreDfSummary>>,
 }
 
-pub type Memo<T> = Arc<Mutex<RefCell<Option<T>>>>;
+//pub type Memo<T> = Arc<Mutex<RefCell<Option<T>>>>;
+
+#[derive(Debug)]
+pub struct Memo<T>(Arc<Mutex<RefCell<Option<T>>>>);
+
+impl<T> Deref for Memo<T> {
+    type Target = Mutex<RefCell<Option<T>>>;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.0
+    }
+}
+
+impl<T> Default for Memo<T> {
+    fn default() -> Self {
+        Memo(Arc::new(Mutex::new(RefCell::new(None))))
+    }
+}
+
+impl<T> Memo<T> {
+    pub fn new(user: Option<T>) -> Memo<T> {
+        Memo(Arc::new(Mutex::new(RefCell::new(user))))
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct User {
@@ -71,9 +99,9 @@ impl Clone for User {
             id: self.id.clone(),
             dirs: self.dirs.clone(),
             metadata: self.metadata.clone(),
-            raw_df: Arc::new(Mutex::new(RefCell::new(None))),
-            score_df: Arc::new(Mutex::new(RefCell::new(None))),
-            last_raw_df_date: Arc::new(Mutex::new(RefCell::new(None))),
+            raw_df: Memo::default(),
+            score_df: Memo::default(),
+            last_raw_df_date: Memo::default(),
         };
     }
 }
@@ -94,9 +122,9 @@ impl User {
             id: uuid,
             dirs: HashSet::new(),
             metadata: RefCell::new(UserMetadata::new()),
-            raw_df: Arc::new(Mutex::new(RefCell::new(None))),
-            score_df: Arc::new(Mutex::new(RefCell::new(None))),
-            last_raw_df_date: Arc::new(Mutex::new(RefCell::new(None))),
+            raw_df: Memo::default(),
+            score_df: Memo::default(),
+            last_raw_df_date: Memo::default(),
         }
     }
 
@@ -116,9 +144,9 @@ impl User {
                         }
                     })),
             ),
-            raw_df: Arc::new(Mutex::new(RefCell::new(None))),
-            score_df: Arc::new(Mutex::new(RefCell::new(None))),
-            last_raw_df_date: Arc::new(Mutex::new(RefCell::new(None))),
+            raw_df: Memo::default(),
+            score_df: Memo::default(),
+            last_raw_df_date: Memo::default(),
         }
     }
 
@@ -155,6 +183,8 @@ impl User {
             m.app_version = Some(dir.app_version.clone());
         };
         m.activities = Some(DailyActivities::from(self.dirs.clone()));
+        m.app_feedback = self.get_rectify_feedback();
+        m.backpain_feedback = self.get_backpain_feedback();
     }
 
     pub fn get_df(
@@ -188,14 +218,20 @@ impl User {
     }
 
     pub fn find_in_logs(&self, regex: Regex) -> Vec<LogEntry> {
-        find_in_logs(&self.dirs.clone().to_paths(), regex)
+        Logs::new(self.dirs.clone().to_paths()).filter(regex)
+        //find_in_logs(&self.dirs.clone().to_paths(), regex)
     }
 
     pub fn get_rectify_feedback(&self) -> Option<TimedData<RectifyFeedback>> {
         match self.get_feedback(FeedbackType::Rectify) {
             Some(td) => {
                 let data = match RectifyFeedback::from_str(td.data.as_str()) {
-                    Ok(f) => f,
+                    Ok(mut f) => {
+                        f.eMail = None;
+                        f.otherWishes = None;
+                        f.otherFeatureWishes = None;
+                        f
+                    }
                     Err(e) => {
                         println!("failed to parse {} with {:?}", td.data, e);
                         return None;
@@ -310,6 +346,44 @@ impl User {
             Err(_) => vec![],
         }
     }
+
+    pub fn get_logs(&self) -> PolarsResult<DataFrame> {
+        self.get_df(OutputType::logs, None)
+    }
+
+    fn write_df(&self, base_path: PathBuf, output_type: OutputType) {
+        let mut path = base_path.clone();
+
+        path.push(match output_type {
+            OutputType::points => "score.parquet",
+            OutputType::raw => "raw.parquet",
+            OutputType::logs => "logs.parquet",
+        });
+
+        write_df(
+            &path,
+            &mut match output_type {
+                OutputType::points => (*self.get_score_df()).clone(),
+                OutputType::raw => (*self.get_raw_df(None)).clone(),
+                OutputType::logs => dbg!(self.get_logs()).expect("could not get logs"),
+            },
+        );
+    }
+
+    pub fn create_user_folder(&self, base_path: PathBuf) {
+        let mut path = base_path.clone();
+        path.push("metadata.json");
+        let serde_val = serde_json::to_string_pretty(&self.metadata.borrow().clone()).unwrap();
+        let output_buf: &[u8] = serde_val.as_bytes();
+        File::create(path)
+            .unwrap()
+            .write_all(&output_buf)
+            .expect("could not write metadata");
+
+        self.write_df(base_path.clone(), OutputType::logs);
+        self.write_df(base_path.clone(), OutputType::raw);
+        self.write_df(base_path, OutputType::points);
+    }
 }
 
 impl Into<ScoreDfSummary> for Vec<ScoreDfSummary> {
@@ -329,5 +403,17 @@ impl Into<ScoreDfSummary> for Vec<ScoreDfSummary> {
                 .reduce(|a, b| if a < b { b } else { a })
                 .unwrap(),
         }
+    }
+}
+
+impl Into<User> for Uuid {
+    fn into(self) -> User {
+        User::new(self)
+    }
+}
+
+impl Into<Memo<User>> for Uuid {
+    fn into(self) -> Memo<User> {
+        Memo::new(Some(self.into()))
     }
 }

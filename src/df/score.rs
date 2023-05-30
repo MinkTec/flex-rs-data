@@ -22,8 +22,8 @@ impl ScoreDf {
     }
 
     fn convert_t_to_time(&mut self) {
-        if let Ok(df) = convert_i64_to_time(&mut self.0, Some("t")) {
-            self.0 = df;
+        if let Ok(df) = convert_i64_to_time(&mut self.0, None) {
+            self.0 = df.to_owned();
         }
     }
 
@@ -94,6 +94,7 @@ impl TryFrom<PathBuf> for ScoreDf {
         } else {
             read_csv_file(&value, OutputType::points)?
         }
+        .to_owned()
         .try_into()
     }
 }

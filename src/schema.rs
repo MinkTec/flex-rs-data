@@ -181,7 +181,7 @@ impl OutputType {
     pub fn schema(&self, length: Option<usize>) -> Option<Schema> {
         let time_field = Field::new(
             "t",
-            DataType::Datetime(polars::prelude::TimeUnit::Milliseconds, None),
+            DataType::Datetime(polars::prelude::TimeUnit::Nanoseconds, None),
         );
 
         match self {
@@ -193,7 +193,12 @@ impl OutputType {
                 Field::new("activity", DataType::Utf8),
             ])),
             OutputType::raw => Some(generate_flextail_schema(length.unwrap_or(18))),
-            OutputType::logs => None,
+            OutputType::logs => Some(Schema::from_iter(vec![
+                Field::new("t", DataType::Utf8),
+                Field::new("logger_name", DataType::Utf8),
+                Field::new("priority", DataType::Utf8),
+                Field::new("message", DataType::Utf8),
+            ])),
         }
     }
 }

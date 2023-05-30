@@ -2,12 +2,12 @@ pub mod raw;
 pub mod score;
 pub mod time_bound_df;
 
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveDateTime};
 use polars::prelude::*;
 
 use uuid::Uuid;
 
-use std::fs::{self, DirEntry, File};
+use std::fs::{self, File};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -15,7 +15,10 @@ use std::sync::Arc;
 use crate::fs::{
     concat_csv_files, filter_files_by_date, find_uuid_dirs, list_files, parse_subdirs,
 };
-use crate::misc::{get_num_of_sensors_from_file, infer_df_type, infer_file_type, is_new_schema};
+use crate::misc::{
+    get_num_of_sensors_from_file, infer_df_type, infer_file_type, is_new_schema,
+    parse_dart_timestring, parse_dart_timestring_short,
+};
 use crate::schema::{generate_flextail_schema, generate_points_schema, OutputType};
 
 use self::raw::transform_to_new_schema;
@@ -108,7 +111,6 @@ pub fn create_user_df_from_files(
     output_type: OutputType,
     date: Option<NaiveDate>,
 ) -> PolarsResult<DataFrame> {
-
     let files = if date.is_some() {
         filter_files_by_date(&files, date.unwrap())
     } else {
@@ -116,12 +118,12 @@ pub fn create_user_df_from_files(
     };
 
     let new_path = concat_csv_files(&files);
-    let df = read_csv_file(&new_path, output_type);
+    let df = dbg!(read_csv_file(&new_path, output_type));
     fs::remove_file(new_path).expect("could not delete file");
     return df;
 }
 
-pub fn create_user_df<'a>(
+pub fn create_user_df(
     folders: &Vec<PathBuf>,
     output_type: OutputType,
     date: Option<NaiveDate>,
@@ -186,10 +188,8 @@ fn flatten_df(df: DataFrame) -> Result<DataFrame, PolarsError> {
 }
 
 fn write_flat_df(path: &PathBuf, df: DataFrame) {
-    println!("flat df");
     match flatten_df(df) {
         Ok(df) => {
-            println!("{:?}", df);
             let file = &mut File::create(path).expect("could not create file");
             match CsvWriter::new(file)
                 .has_header(false)
@@ -205,22 +205,19 @@ fn write_flat_df(path: &PathBuf, df: DataFrame) {
     }
 }
 
-pub fn write_df(path: &PathBuf, df: DataFrame) {
+pub fn write_df(path: &PathBuf, df: &mut DataFrame) {
     let file = &mut File::create(path).expect("could not create file");
     match TableFormat::from_str(path.to_str().unwrap()) {
         Ok(e) => match e {
             TableFormat::Arrow => todo!("the arrow format writer is not yet implemented"),
             TableFormat::Csv => {
-                if let Some(mut df) = convert_time_to_i64(&mut df.clone(), Some("t")) {
+                if let Some(mut df) = Some(df.clone()) {
                     match CsvWriter::new(file).has_header(false).finish(&mut df) {
                         Ok(_) => println!("wrote file to {:?}", path),
-                        Err(e) => write_flat_df(path, df),
+                        _ => write_flat_df(path, df),
                     }
                 } else {
-                    match CsvWriter::new(file)
-                        .has_header(false)
-                        .finish(&mut df.clone())
-                    {
+                    match CsvWriter::new(file).has_header(false).finish(df) {
                         Ok(_) => println!("wrote file to {:?}", path),
                         Err(e) => {
                             println!("could no write df {e}")
@@ -234,14 +231,20 @@ pub fn write_df(path: &PathBuf, df: DataFrame) {
                         OutputType::raw => true,
                         _ => false,
                     } {
-                    transform_to_new_schema(&df).unwrap()
+                    transform_to_new_schema(df).unwrap()
                 } else {
-                    match convert_i64_to_time(&mut df.clone(), None) {
-                        Ok(df) => df,
-                        Err(_) => df.clone(),
+                    match infer_df_type(&df) {
+                        OutputType::points | OutputType::logs => df.clone(),
+                        OutputType::raw => match convert_i64_to_time(df, None) {
+                            Ok(df) => df.clone(),
+                            Err(_) => df.clone(),
+                        },
                     }
                 };
-                match ParquetWriter::new(file).finish(&mut df) {
+                match ParquetWriter::new(file)
+                    .with_statistics(true)
+                    .finish(&mut df)
+                {
                     Ok(_) => println!("wrote df {:?}\n file to {:?}", df, path),
                     Err(_) => println!("failed to write file"),
                 }
@@ -263,10 +266,21 @@ pub fn convert_time_to_i64(df: &mut DataFrame, column: Option<&str>) -> Option<D
     None
 }
 
-pub fn convert_i64_to_time(df: &mut DataFrame, column: Option<&str>) -> PolarsResult<DataFrame> {
+pub fn convert_i64_to_time(
+    df: &mut DataFrame,
+    time_unit: Option<TimeUnit>,
+) -> PolarsResult<DataFrame> {
+    let mut df = df.clone().filter(&ChunkedArray::from_iter(
+        df.column("t")
+            .unwrap()
+            .i64()
+            .unwrap()
+            .into_iter()
+            .map(|x| x.unwrap() > 0),
+    ))?;
     Ok(df
-        .with_column(df.column(column.unwrap_or("t"))?.cast(&DataType::Datetime(
-            polars::prelude::TimeUnit::Milliseconds,
+        .with_column(df.column("t")?.cast(&DataType::Datetime(
+            time_unit.unwrap_or(polars::prelude::TimeUnit::Milliseconds),
             Some("Europe/Berlin".into()),
         ))?)?
         .clone())
@@ -279,16 +293,40 @@ pub fn read_points_csv(path: &PathBuf) -> PolarsResult<DataFrame> {
             .with_ignore_errors(true)
             .has_header(false)
             .finish()?,
-        Some("t"),
+        None,
     )
 }
 
 pub fn read_logs_csv(path: &PathBuf) -> PolarsResult<DataFrame> {
-    CsvReader::from_path(path)?
+    let df = CsvReader::from_path(path)?
         .with_ignore_errors(true)
-        .infer_schema(Some(10))
+        .with_schema(Arc::new(OutputType::logs.schema(None).unwrap()))
         .has_header(false)
-        .finish()
+        .finish()?;
+
+    // ass
+    let mut df = df.filter(
+        &df.column("t")
+            .unwrap()
+            .utf8()
+            .unwrap()
+            .into_iter()
+            .map(|x| x.unwrap_or("").len() > 0 && parse_dart_timestring_short(x.unwrap()).is_ok())
+            .collect(),
+    )?;
+
+    let s = DatetimeChunked::from_naive_datetime(
+        "t",
+        df.column("t")
+            .unwrap()
+            .utf8()
+            .unwrap()
+            .into_iter()
+            .map(|x| parse_dart_timestring_short(x.unwrap()).unwrap()),
+        TimeUnit::Milliseconds,
+    );
+
+    df.replace_or_add("t", s).cloned()
 }
 
 pub fn read_raw_csv(path: &PathBuf) -> Result<DataFrame, PolarsError> {
@@ -313,11 +351,11 @@ pub fn read_raw_csv(path: &PathBuf) -> Result<DataFrame, PolarsError> {
 }
 
 fn read_csv_file(file: &PathBuf, output_type: OutputType) -> PolarsResult<DataFrame> {
-    match output_type {
-        OutputType::points => read_points_csv(file),
-        OutputType::raw => read_raw_csv(file),
-        OutputType::logs => read_logs_csv(file),
-    }
+    (match output_type {
+        OutputType::points => read_points_csv,
+        OutputType::raw => read_raw_csv,
+        OutputType::logs => read_logs_csv,
+    })(file)
 }
 
 pub fn df_column_to_data_point(

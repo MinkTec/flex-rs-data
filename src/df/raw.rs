@@ -19,12 +19,13 @@ use derive_more::Deref;
 
 use super::{create_user_df, create_user_df_from_files, read_csv_file, ColNameGenerator};
 
-pub fn transform_to_new_schema(df: &DataFrame) -> PolarsResult<DataFrame> {
-    if df.shape().1 <= 7 {
+pub fn transform_to_new_schema(df: &mut DataFrame) -> PolarsResult<DataFrame> {
+    if df.is_empty() || df.shape().0 == 0 || df.shape().1 <= 7 {
         Ok(df.to_owned())
     } else {
         let n = get_num_of_sensors(df.shape().1);
-        df.clone()
+        Ok(dbg!(df)
+            .clone()
             .lazy()
             .select([
                 concat_lst([cols(ColNameGenerator::prefix_n("l", n))])?.alias("left"),
@@ -34,7 +35,7 @@ pub fn transform_to_new_schema(df: &DataFrame) -> PolarsResult<DataFrame> {
                 col("v"),
                 col("t"),
             ])
-            .collect()
+            .collect()?)
     }
 }
 
@@ -139,10 +140,12 @@ impl RawDf {
 
     pub fn calc_movement_score(&self, n: usize) -> Vec<f64> {
         self.acc().to_vec_unchecked()[..]
-            .windows(2).par_bridge()
+            .windows(2)
+            .par_bridge()
             .map(|x| [x[1][0] - x[0][0], x[1][1] - x[0][1], x[1][2] - x[0][2]].map(|x| x.abs()))
             .collect::<Vec<[i32; 3]>>()[..]
-            .windows(n).par_bridge()
+            .windows(n)
+            .par_bridge()
             .map(|v| {
                 (v.into_iter().map(|v| v[0] + v[1] + v[2]).sum::<i32>() as f64 / n as f64) / 8.0
             })
@@ -174,7 +177,7 @@ impl TryFrom<DataFrame> for RawDf {
 
     fn try_from(value: DataFrame) -> Result<RawDf, Self::Error> {
         if let OutputType::raw = infer_df_type(&value) {
-            Ok(RawDf(transform_to_new_schema(&value)?))
+            Ok(RawDf(transform_to_new_schema(&mut value.clone())?.clone()))
         } else {
             Err(PolarsError::SchemaMismatch(
                 format!("type infered to {:?}", infer_df_type(&value)).into(),
@@ -188,10 +191,10 @@ impl TryFrom<PathBuf> for RawDf {
 
     fn try_from(value: PathBuf) -> PolarsResult<RawDf> {
         if value.is_dir() {
-            create_user_df(&vec![value], OutputType::raw, None)?
+            create_user_df(&vec![value], OutputType::raw, None)
         } else {
-            read_csv_file(&value, OutputType::raw)?
-        }
+            read_csv_file(&value, OutputType::raw)
+        }?
         .try_into()
     }
 }

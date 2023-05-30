@@ -75,3 +75,7 @@ pub fn timeit<F: Fn() -> T, T>(f: F) -> T {
 pub fn parse_dart_timestring(s: &str) -> Result<NaiveDateTime, chrono::ParseError> {
     NaiveDateTime::parse_from_str(s.split_once(".").unwrap().0, "%Y-%m-%d %H:%M:%S")
 }
+
+pub fn parse_dart_timestring_short(s: &str) -> Result<NaiveDateTime, chrono::ParseError> {
+    NaiveDateTime::parse_from_str(dbg!(s), "%Y-%m-%d %H:%M:%S.%f")
+}

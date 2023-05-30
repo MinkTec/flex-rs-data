@@ -44,6 +44,87 @@ impl FromStr for LogLevel {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ExerciseLength {
+    S,
+    M,
+    L,
+    XL,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum FGBGMode {
+    Foreground,
+    Background,
+    Switch,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum LogEvents {
+    Vibration,
+    ConnectionLoss,
+    Exercise(ExerciseLength),
+    FBGB(FGBGMode),
+    VibrationLevelChange,
+}
+
+impl LogEvents {
+    fn query(&self) -> Regex {
+        Regex::new(match self {
+            LogEvents::Vibration => "VibrationTrigger, INFO, vibration:",
+            LogEvents::ConnectionLoss => "disconnected from",
+            LogEvents::Exercise(_) => "saturation added: [1-9]",
+            LogEvents::FBGB(_) => "FBGB",
+            LogEvents::VibrationLevelChange => "put: HiveKey.vibrationTriggerLevel",
+        })
+        .unwrap()
+    }
+}
+
+pub struct Logs(Vec<PathBuf>);
+
+impl Logs {
+    pub fn new(paths: Vec<PathBuf>) -> Logs {
+        Logs(paths)
+    }
+
+    pub fn iter_lines<F: FnMut(&str)>(&self, mut callback: F) {
+        get_subdirs(&self.0, OutputType::logs)
+            .into_iter()
+            .for_each(|x| match fs::read_to_string(x.path()) {
+                Ok(file) => file.lines().for_each(|x| callback(x)),
+                _ => {}
+            })
+    }
+
+    pub fn filter(&self, regex: Regex) -> Vec<LogEntry> {
+        let mut m: Vec<LogEntry> = vec![];
+        self.iter_lines(|line| {
+            if regex.is_match(line) {
+                if let Ok(entry) = LogEntry::from_str(line) {
+                    m.push(entry);
+                }
+            }
+        });
+        m
+    }
+
+    pub fn find(&self, regex: Regex) -> Option<LogEntry> {
+        for entry in get_subdirs(&self.0, OutputType::logs).into_iter() {
+            if let Ok(content) = fs::read_to_string(entry.path()) {
+                for line in content.lines() {
+                    if regex.is_match(line) {
+                        if let Ok(entry) = LogEntry::from_str(line) {
+                            return Some(entry);
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParseLogEntryError;
 
