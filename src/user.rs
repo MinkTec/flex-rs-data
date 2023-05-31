@@ -362,11 +362,9 @@ impl User {
 
         write_df(
             &path,
-            &mut match output_type {
-                OutputType::points => (*self.get_score_df()).clone(),
-                OutputType::raw => (*self.get_raw_df(None)).clone(),
-                OutputType::logs => dbg!(self.get_logs()).expect("could not get logs"),
-            },
+            &mut self
+                .get_df(output_type.clone(), None)
+                .expect(format!("could not create df of type {:?}", output_type).as_str()),
         );
     }
 

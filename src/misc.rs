@@ -77,5 +77,5 @@ pub fn parse_dart_timestring(s: &str) -> Result<NaiveDateTime, chrono::ParseErro
 }
 
 pub fn parse_dart_timestring_short(s: &str) -> Result<NaiveDateTime, chrono::ParseError> {
-    NaiveDateTime::parse_from_str(dbg!(s), "%Y-%m-%d %H:%M:%S.%f")
+    NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S.%f")
 }

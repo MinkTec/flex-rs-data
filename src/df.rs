@@ -118,7 +118,7 @@ pub fn create_user_df_from_files(
     };
 
     let new_path = concat_csv_files(&files);
-    let df = dbg!(read_csv_file(&new_path, output_type));
+    let df = read_csv_file(&new_path, output_type);
     fs::remove_file(new_path).expect("could not delete file");
     return df;
 }
@@ -177,12 +177,8 @@ fn flatten_df(df: DataFrame) -> Result<DataFrame, PolarsError> {
         }
     }
 
-    println!("{:?}", lazyframe.schema());
-
     let lazyframe = lazyframe.drop_columns(column_names);
     let lazyframe = lazyframe.drop_columns(["coords"]);
-
-    println!("{:?}", lazyframe.schema());
 
     lazyframe.collect()
 }

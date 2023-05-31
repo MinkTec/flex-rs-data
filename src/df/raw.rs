@@ -24,7 +24,7 @@ pub fn transform_to_new_schema(df: &mut DataFrame) -> PolarsResult<DataFrame> {
         Ok(df.to_owned())
     } else {
         let n = get_num_of_sensors(df.shape().1);
-        Ok(dbg!(df)
+        Ok(df
             .clone()
             .lazy()
             .select([
