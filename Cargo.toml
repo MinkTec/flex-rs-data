@@ -9,9 +9,9 @@ edition = "2021"
 arrow = "37.0.0"
 chrono = { version = "0.4.24", features = ["serde"] }
 mime_guess = "2.0.4"
-polars = { version = "0.28.0", features = ["timezones", "parquet", "lazy", "json"]}
-polars-arrow = "0.28.0"
-polars-io = { version = "0.28.0", features = ["parquet"] }
+polars = { version = "0.29.0", features = ["timezones", "parquet", "lazy", "json"]}
+polars-arrow = "0.29.0"
+polars-io = { version = "0.29.0", features = ["parquet"] }
 uuid = { version = "1.3.1", features = ["v4", "serde"] }
 flex-rs-core = { path = "../flex-rs-core" }
 serde = "1.0.160"

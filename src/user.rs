@@ -153,7 +153,7 @@ impl User {
     pub fn gen_summary(&self) -> Option<UserScoreSummary> {
         let df = self.get_score_df();
         let summaries = df
-            .get_days()
+            .get_days(Some(50))
             .par_iter()
             .filter_map(|x| {
                 if (*x.data).shape().0 > 0 {

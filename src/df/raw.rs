@@ -4,13 +4,13 @@ use flex_rs_core::{
     case_position::CasePosition, measurement::Measurement,
     sensor_angles::calc_angles_with_default_params, FlextailPositionContainer,
 };
-use polars::{frame::row::Row, lazy::dsl::concat_lst, prelude::*};
+use polars::{frame::row::Row, lazy::dsl::concat_list, prelude::*};
 
 use rayon::prelude::*;
 
 use crate::{
     clustered_data::NDHistogram,
-    misc::{get_num_of_sensors, infer_df_type},
+    misc::{get_num_of_sensors, infer_df_type, timeit},
     schema::OutputType,
     series::{ToSeries, ToVec},
 };
@@ -28,10 +28,10 @@ pub fn transform_to_new_schema(df: &mut DataFrame) -> PolarsResult<DataFrame> {
             .clone()
             .lazy()
             .select([
-                concat_lst([cols(ColNameGenerator::prefix_n("l", n))])?.alias("left"),
-                concat_lst([cols(ColNameGenerator::prefix_n("r", n))])?.alias("right"),
-                concat_lst([cols(["x", "y", "z"])])?.alias("acc"),
-                concat_lst([cols(["alpha", "beta", "gamma"])])?.alias("gyro"),
+                concat_list([cols(ColNameGenerator::prefix_n("l", n))])?.alias("left"),
+                concat_list([cols(ColNameGenerator::prefix_n("r", n))])?.alias("right"),
+                concat_list([cols(["x", "y", "z"])])?.alias("acc"),
+                concat_list([cols(["alpha", "beta", "gamma"])])?.alias("gyro"),
                 col("v"),
                 col("t"),
             ])
@@ -123,6 +123,43 @@ impl RawDf {
                 )
             })
             .collect()
+    }
+
+    pub fn with_coordinates(&self) -> PolarsResult<Self> {
+        let angles = timeit(|| self.calc_angles());
+        let mut df = (*self).clone();
+        let mut df = df
+            .replace_or_add(
+                "alpha",
+                angles
+                    .iter()
+                    .map(|x| x.alpha.clone())
+                    .collect::<Vec<Vec<f64>>>()
+                    .to_series(),
+            )
+            .unwrap();
+        df = df
+            .replace_or_add(
+                "beta",
+                angles
+                    .iter()
+                    .map(|x| x.beta.clone())
+                    .collect::<Vec<Vec<f64>>>()
+                    .to_series(),
+            )
+            .unwrap();
+        Ok(RawDf(
+            df.replace_or_add(
+                "coords",
+                angles
+                    .into_iter()
+                    .map(|x| vec![x.coords.x, x.coords.y, x.coords.z])
+                    .collect::<Vec<Vec<Vec<f64>>>>()
+                    .to_series(),
+            )
+            .unwrap()
+            .clone(),
+        ))
     }
 
     pub fn with_movement_score(&self) -> RawDf {

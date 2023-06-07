@@ -78,13 +78,12 @@ impl FromStr for ParsedDir {
             .map(|x| x.0)
             .for_each(|x| path.replace_range(x..=x, ":"));
         #[cfg(target_os = "windows")]
-        let path = dbg!(path.as_str());
-        
+        let path = path.as_str();
+
         #[cfg(not(target_os = "windows"))]
         let split_char = "/";
         #[cfg(target_os = "windows")]
         let split_char = "\\";
-
 
         let split: Vec<String> = path
             .split(split_char)
@@ -94,10 +93,10 @@ impl FromStr for ParsedDir {
             .map(|x| x.to_string())
             .collect();
 
-        let uuid = (match Uuid::parse_str(split.iter().last().unwrap()) {
+        let uuid = match Uuid::parse_str(split.iter().last().unwrap()) {
             Ok(it) => Ok(it),
             Err(_) => Err(ParseFlexDataDirNameError),
-        })?;
+        }?;
 
         let initial_app_start = match parse_dart_timestring(split[0..=1].join(" ").as_str()) {
             Ok(it) => Ok(it),
@@ -204,10 +203,10 @@ pub fn list_dirs(path: &PathBuf) -> Vec<fs::DirEntry> {
 }
 
 pub fn parse_subdirs(path: &PathBuf) -> Vec<ParsedDir> {
-    dbg!(dbg!(list_dirs(path))
+    list_dirs(path)
         .iter()
         .filter_map(|x| ParsedDir::try_from(x).ok())
-        .collect())
+        .collect()
 }
 
 pub fn list_files(path: PathBuf) -> Vec<fs::DirEntry> {

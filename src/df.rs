@@ -1,8 +1,10 @@
+pub mod generic;
+pub mod logs;
 pub mod raw;
 pub mod score;
 pub mod time_bound_df;
 
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::NaiveDate;
 use polars::prelude::*;
 
 use uuid::Uuid;
@@ -17,12 +19,13 @@ use crate::fs::{
 };
 use crate::misc::{
     get_num_of_sensors_from_file, infer_df_type, infer_file_type, is_new_schema,
-    parse_dart_timestring, parse_dart_timestring_short,
+    parse_dart_timestring_short,
 };
 use crate::schema::{generate_flextail_schema, generate_points_schema, OutputType};
 
 use self::raw::transform_to_new_schema;
 
+#[derive(Debug)]
 enum TableFormat {
     Csv,
     Arrow,
@@ -64,7 +67,9 @@ fn read_arrow_file(_path: &PathBuf) -> PolarsResult<DataFrame> {
 }
 
 fn read_parquet_file(path: &PathBuf) -> PolarsResult<DataFrame> {
-    ParquetReader::new(&mut std::fs::File::open(path).unwrap()).finish()
+    ParquetReader::new(&mut std::fs::File::open(path).unwrap())
+        .read_parallel(ParallelStrategy::Auto)
+        .finish()
 }
 
 fn any_value_to_i16(row: Vec<&AnyValue<'_>>) -> Vec<i16> {
@@ -266,6 +271,10 @@ pub fn convert_i64_to_time(
     df: &mut DataFrame,
     time_unit: Option<TimeUnit>,
 ) -> PolarsResult<DataFrame> {
+    if let Err(_) = df.column("t").unwrap().i64() {
+        return Ok(df.clone());
+    }
+
     let mut df = df.clone().filter(&ChunkedArray::from_iter(
         df.column("t")
             .unwrap()

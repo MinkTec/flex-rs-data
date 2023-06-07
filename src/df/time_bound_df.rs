@@ -7,14 +7,14 @@ use timespan::{DatedData, Timespan};
 
 use crate::schema::OutputType;
 
-use super::{raw::RawDf, score::ScoreDf};
+use super::{generic::GenericTimeBoundDf, logs::LogsDf, raw::RawDf, score::ScoreDf};
 
 pub trait TimeBoundDf {
     fn day(&self, date: NaiveDate) -> Self;
     fn timespan(&self) -> Option<Timespan>;
     fn get_activity_timespans(&self, threshold: i64) -> Vec<Timespan>;
     fn split_into_time_chunks(&self, duration: i64) -> Vec<Box<Self>>;
-    fn get_days(&self) -> Vec<DatedData<Box<Self>>>;
+    fn get_days(&self, min_length: Option<usize>) -> Vec<DatedData<Box<Self>>>;
 }
 
 pub trait TimeColumn {
@@ -28,6 +28,18 @@ impl TimeColumn for RawDf {
 }
 
 impl TimeColumn for ScoreDf {
+    fn time(&self) -> &Logical<DatetimeType, Int64Type> {
+        self.time()
+    }
+}
+
+impl TimeColumn for LogsDf {
+    fn time(&self) -> &Logical<DatetimeType, Int64Type> {
+        self.time()
+    }
+}
+
+impl TimeColumn for GenericTimeBoundDf {
     fn time(&self) -> &Logical<DatetimeType, Int64Type> {
         self.time()
     }
@@ -69,8 +81,26 @@ where
         if let Some(begin) = self.time().min() {
             if let Some(end) = self.time().max() {
                 return Some(Timespan {
-                    begin: NaiveDateTime::from_timestamp_millis(begin).unwrap(),
-                    end: NaiveDateTime::from_timestamp_millis(end).unwrap(),
+                    begin: NaiveDateTime::from_timestamp_millis(
+                        begin.max(
+                            NaiveDate::from_ymd_opt(2023, 1, 1)
+                                .unwrap()
+                                .and_hms_opt(0, 0, 0)
+                                .unwrap()
+                                .timestamp_millis(),
+                        ),
+                    )
+                    .unwrap(),
+                    end: NaiveDateTime::from_timestamp_millis(
+                        end.min(
+                            NaiveDate::from_ymd_opt(2024, 1, 1)
+                                .unwrap()
+                                .and_hms_opt(0, 0, 0)
+                                .unwrap()
+                                .timestamp_millis(),
+                        ),
+                    )
+                    .unwrap(),
                 });
             }
         }
@@ -108,7 +138,7 @@ where
             .collect()
     }
 
-    fn get_days(&self) -> Vec<DatedData<Box<Self>>> {
+    fn get_days(&self, min_length: Option<usize>) -> Vec<DatedData<Box<Self>>> {
         match self.timespan() {
             Some(spans) => spans
                 .days()
@@ -118,8 +148,8 @@ where
                         time: x,
                         data: Box::new(self.between(x.into())),
                     };
-                    if r.data.height() > 0 {
-                        Some(r)
+                    if r.data.height() > min_length.unwrap_or(0) {
+                        Some(dbg!(r))
                     } else {
                         None
                     }
