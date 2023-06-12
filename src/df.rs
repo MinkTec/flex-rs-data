@@ -19,7 +19,7 @@ use crate::fs::{
 };
 use crate::misc::{
     get_num_of_sensors_from_file, infer_df_type, infer_file_type, is_new_schema,
-    parse_dart_timestring_short,
+    parse_dart_timestring_short, read_first_n_chars,
 };
 use crate::schema::{generate_flextail_schema, generate_points_schema, OutputType};
 
@@ -39,14 +39,23 @@ impl FromStr for TableFormat {
     type Err = ParseOutputFormatError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.splitn(10, '.').last() {
+        let parts = s.split('.');
+        match dbg!(if parts.clone().count() == 1 {
+            None
+        } else {
+            Some(parts.last().unwrap())
+        }) {
             Some(file_ending) => match file_ending {
                 "csv" => Ok(TableFormat::Csv),
                 "arrow" => Ok(TableFormat::Arrow),
                 "parquet" => Ok(TableFormat::Parquet),
                 _ => Err(ParseOutputFormatError),
             },
-            None => Err(ParseOutputFormatError),
+            None => match dbg!(read_first_n_chars(&s.to_string().into()).as_str()) {
+                "PAR1" => Ok(TableFormat::Parquet),
+                "ARR1" => Ok(TableFormat::Arrow),
+                _ => Ok(TableFormat::Csv),
+            },
         }
     }
 }
@@ -85,7 +94,7 @@ fn any_value_to_i16(row: Vec<&AnyValue<'_>>) -> Vec<i16> {
 }
 
 pub fn read_input_file_into_df(path: PathBuf) -> PolarsResult<DataFrame> {
-    match TableFormat::from_str(&path.to_str().unwrap()) {
+    match dbg!(TableFormat::from_str(&path.to_str().unwrap())) {
         Ok(format) => match format {
             TableFormat::Csv => read_csv_file(&path, infer_file_type(&path)),
             TableFormat::Arrow => read_arrow_file(&path),
@@ -123,7 +132,7 @@ pub fn create_user_df_from_files(
     };
 
     let new_path = concat_csv_files(&files);
-    let df = read_csv_file(&new_path, output_type);
+    let df = read_input_file_into_df(new_path.clone());
     fs::remove_file(new_path).expect("could not delete file");
     return df;
 }

@@ -17,7 +17,7 @@ use crate::{
 
 use derive_more::Deref;
 
-use super::{create_user_df, create_user_df_from_files, read_csv_file, ColNameGenerator};
+use super::{create_user_df, create_user_df_from_files, read_input_file_into_df, ColNameGenerator};
 
 pub fn transform_to_new_schema(df: &mut DataFrame) -> PolarsResult<DataFrame> {
     if df.is_empty() || df.shape().0 == 0 || df.shape().1 <= 7 {
@@ -163,6 +163,7 @@ impl RawDf {
     }
 
     pub fn with_movement_score(&self) -> RawDf {
+        dbg!(self);
         let mut v = vec![0.0; 15];
         v.append(&mut self.calc_movement_score(15));
 
@@ -230,7 +231,7 @@ impl TryFrom<PathBuf> for RawDf {
         if value.is_dir() {
             create_user_df(&vec![value], OutputType::raw, None)
         } else {
-            read_csv_file(&value, OutputType::raw)
+            read_input_file_into_df(value)
         }?
         .try_into()
     }

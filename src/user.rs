@@ -222,50 +222,45 @@ impl User {
         //find_in_logs(&self.dirs.clone().to_paths(), regex)
     }
 
-    pub fn get_rectify_feedback(&self) -> Option<TimedData<RectifyFeedback>> {
-        match self.get_feedback(FeedbackType::Rectify) {
-            Some(td) => {
-                let data = match RectifyFeedback::from_str(td.data.as_str()) {
-                    Ok(mut f) => {
-                        f.eMail = None;
-                        f.otherWishes = None;
-                        f.otherFeatureWishes = None;
-                        f
-                    }
-                    Err(e) => {
-                        println!("failed to parse {} with {:?}", td.data, e);
-                        return None;
-                    }
-                };
-                Some(TimedData {
-                    time: td.time,
-                    data,
-                })
-            }
-            _ => None,
-        }
+    pub fn get_rectify_feedback(&self) -> Vec<TimedData<RectifyFeedback>> {
+        self.get_feedback(FeedbackType::Rectify)
+            .into_iter()
+            .filter_map(|td| match RectifyFeedback::from_str(td.data.as_str()) {
+                Ok(mut f) => {
+                    f.eMail = None;
+                    f.otherWishes = None;
+                    f.otherFeatureWishes = None;
+
+                    Some(TimedData {
+                        time: td.time,
+                        data: f,
+                    })
+                }
+                Err(e) => {
+                    println!("failed to parse {} with {:?}", td.data, e);
+                    None
+                }
+            })
+            .collect()
     }
 
-    pub fn get_backpain_feedback(&self) -> Option<TimedData<BackpainFeedback>> {
-        match self.get_feedback(FeedbackType::Backpain) {
-            Some(td) => {
-                let data = match BackpainFeedback::from_str(td.data.as_str()) {
-                    Ok(f) => f,
-                    Err(e) => {
-                        println!("{:?}", e);
-                        return None;
-                    }
-                };
-                Some(TimedData {
+    pub fn get_backpain_feedback(&self) -> Vec<TimedData<BackpainFeedback>> {
+        self.get_feedback(FeedbackType::Backpain)
+            .into_iter()
+            .filter_map(|td| match BackpainFeedback::from_str(td.data.as_str()) {
+                Ok(f) => Some(TimedData {
                     time: td.time,
-                    data,
-                })
-            }
-            _ => None,
-        }
+                    data: f,
+                }),
+                Err(e) => {
+                    println!("{:?}", e);
+                    None
+                }
+            })
+            .collect()
     }
 
-    fn get_feedback(&self, feedback_type: FeedbackType) -> Option<TimedData<String>> {
+    fn get_feedback(&self, feedback_type: FeedbackType) -> Vec<TimedData<String>> {
         let mut candidates = self
             .dirs
             .clone()
@@ -282,8 +277,9 @@ impl User {
 
         candidates.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
 
-        match candidates.last() {
-            Some(e) => match read_to_string(e.path()) {
+        candidates
+            .into_iter()
+            .filter_map(|e| match read_to_string(e.path()) {
                 Ok(string) => {
                     let time = parse_dart_timestring(
                         e.path()
@@ -300,9 +296,8 @@ impl User {
                     Some(TimedData { time, data: string })
                 }
                 _ => None,
-            },
-            _ => None,
-        }
+            })
+            .collect()
     }
 
     pub fn get_daily_activities(&self) -> DailyActivities {

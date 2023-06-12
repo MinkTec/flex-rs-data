@@ -1,5 +1,5 @@
 use std::{
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Read},
     path::PathBuf,
     time::SystemTime,
 };
@@ -16,6 +16,14 @@ pub fn read_first_line(path: &PathBuf) -> String {
         .read_line(&mut buf)
         .expect("could not read first line");
     buf
+}
+
+pub fn read_first_n_chars(path: &PathBuf) -> String {
+    let mut buf: [u8; 4] = [0; 4];
+    BufReader::new(std::fs::File::open(path).unwrap())
+        .read_exact(&mut buf)
+        .expect("could not read first line");
+    (*String::from_utf8_lossy(&buf[..])).to_string()
 }
 
 pub fn get_number_of_csv_fields(path: &PathBuf) -> usize {
@@ -68,12 +76,12 @@ pub fn timeit<F: Fn() -> T, T>(f: F) -> T {
     let result = f();
     let end = SystemTime::now();
     let duration = end.duration_since(start).unwrap();
-    println!("took {} ms", duration.as_millis());
+    println!("took {} ms", duration.as_nanos());
     result
 }
 
 pub fn parse_dart_timestring(s: &str) -> Result<NaiveDateTime, chrono::ParseError> {
-    NaiveDateTime::parse_from_str(s.split_once(".").unwrap_or((s,s)).0, "%Y-%m-%d %H:%M:%S")
+    NaiveDateTime::parse_from_str(s.split_once(".").unwrap_or((s, s)).0, "%Y-%m-%d %H:%M:%S")
 }
 
 pub fn parse_dart_timestring_short(s: &str) -> Result<NaiveDateTime, chrono::ParseError> {
