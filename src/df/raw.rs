@@ -115,7 +115,6 @@ impl RawDf {
         self.left()
             .into_iter()
             .zip(self.right())
-            .par_bridge()
             .map(|x| {
                 calc_angles_with_default_params(
                     &x.0.unwrap().to_vec_unchecked(),
@@ -163,7 +162,6 @@ impl RawDf {
     }
 
     pub fn with_movement_score(&self) -> RawDf {
-        dbg!(self);
         let mut v = vec![0.0; 15];
         v.append(&mut self.calc_movement_score(15));
 

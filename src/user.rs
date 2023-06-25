@@ -200,7 +200,10 @@ impl User {
         let mut cache = guard.borrow_mut();
 
         if cache.is_none() {
-            *cache = Some(ScoreDf(self.get_df(OutputType::points, None).unwrap()));
+            *cache = Some(match self.get_df(OutputType::points, None) {
+                Ok(df) => ScoreDf(df),
+                _ => ScoreDf::dummy(),
+            })
         }
 
         ScoreDf(cache.as_deref().unwrap().clone())

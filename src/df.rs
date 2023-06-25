@@ -19,7 +19,7 @@ use crate::fs::{
 };
 use crate::misc::{
     get_num_of_sensors_from_file, infer_df_type, infer_file_type, is_new_schema,
-    parse_dart_timestring_short, read_first_n_chars,
+    parse_dart_timestring_short, read_first_line, read_first_n_chars,
 };
 use crate::schema::{generate_flextail_schema, generate_points_schema, OutputType};
 
@@ -40,21 +40,30 @@ impl FromStr for TableFormat {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts = s.split('.');
-        match dbg!(if parts.clone().count() == 1 {
+        match if parts.clone().count() == 1 {
             None
         } else {
             Some(parts.last().unwrap())
-        }) {
+        } {
             Some(file_ending) => match file_ending {
                 "csv" => Ok(TableFormat::Csv),
                 "arrow" => Ok(TableFormat::Arrow),
                 "parquet" => Ok(TableFormat::Parquet),
                 _ => Err(ParseOutputFormatError),
             },
-            None => match dbg!(read_first_n_chars(&s.to_string().into()).as_str()) {
+            None => match read_first_n_chars(&s.to_string().into()).as_str() {
                 "PAR1" => Ok(TableFormat::Parquet),
                 "ARR1" => Ok(TableFormat::Arrow),
-                _ => Ok(TableFormat::Csv),
+                _ => match read_first_line(&s.to_string().into()) {
+                    Some(line) => {
+                        if line.contains(",") {
+                            Ok(TableFormat::Csv)
+                        } else {
+                            Err(ParseOutputFormatError)
+                        }
+                    }
+                    None => Err(ParseOutputFormatError),
+                },
             },
         }
     }
@@ -94,13 +103,15 @@ fn any_value_to_i16(row: Vec<&AnyValue<'_>>) -> Vec<i16> {
 }
 
 pub fn read_input_file_into_df(path: PathBuf) -> PolarsResult<DataFrame> {
-    match dbg!(TableFormat::from_str(&path.to_str().unwrap())) {
+    match TableFormat::from_str(&path.to_str().unwrap()) {
         Ok(format) => match format {
             TableFormat::Csv => read_csv_file(&path, infer_file_type(&path)),
             TableFormat::Arrow => read_arrow_file(&path),
             TableFormat::Parquet => read_parquet_file(&path),
         },
-        Err(e) => panic!("could not parse input file type {:?}", e),
+        Err(e) => Err(PolarsError::NoData(
+            format!("could not parse input file type {:?}", e).into(),
+        )),
     }
 }
 
@@ -219,7 +230,6 @@ pub fn write_df(path: &PathBuf, df: &mut DataFrame) {
     let file = &mut File::create(path).expect("could not create file");
     match TableFormat::from_str(path.to_str().unwrap()) {
         Ok(e) => match e {
-            TableFormat::Arrow => todo!("the arrow format writer is not yet implemented"),
             TableFormat::Csv => {
                 if let Some(mut df) = Some(df.clone()) {
                     match CsvWriter::new(file).has_header(false).finish(&mut df) {
@@ -259,6 +269,27 @@ pub fn write_df(path: &PathBuf, df: &mut DataFrame) {
                     Err(_) => println!("failed to write file"),
                 }
             }
+            TableFormat::Arrow => {
+                let mut df = if (!is_new_schema(&df))
+                    && match infer_df_type(&df) {
+                        OutputType::raw => true,
+                        _ => false,
+                    } {
+                    transform_to_new_schema(df).unwrap()
+                } else {
+                    match infer_df_type(&df) {
+                        OutputType::points | OutputType::logs => df.clone(),
+                        OutputType::raw => match convert_i64_to_time(df, None) {
+                            Ok(df) => df.clone(),
+                            _ => df.clone(),
+                        },
+                    }
+                };
+                match IpcWriter::new(file).finish(&mut df) {
+                    Ok(_) => println!("wrote df {:?}\n file to {:?}", df, path),
+                    Err(e) => println!("failed to write file because {e}"),
+                }
+            }
         },
         Err(_) => todo!(),
     }
@@ -290,7 +321,7 @@ pub fn convert_i64_to_time(
             .i64()
             .unwrap()
             .into_iter()
-            .map(|x| x.unwrap() > 0),
+            .map(|x| x.unwrap_or(0) > 0),
     ))?;
     Ok(df
         .with_column(df.column("t")?.cast(&DataType::Datetime(

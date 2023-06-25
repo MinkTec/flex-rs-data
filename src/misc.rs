@@ -9,20 +9,20 @@ use polars::prelude::DataFrame;
 
 use crate::schema::OutputType;
 
-pub fn read_first_line(path: &PathBuf) -> String {
+pub fn read_first_line(path: &PathBuf) -> Option<String> {
     let f = std::fs::File::open(path).unwrap();
     let mut buf = String::new();
-    BufReader::new(f)
-        .read_line(&mut buf)
-        .expect("could not read first line");
-    buf
+    match BufReader::new(f).read_line(&mut buf) {
+        Ok(_) => Some(buf),
+        Err(_) => None,
+    }
 }
 
 pub fn read_first_n_chars(path: &PathBuf) -> String {
     let mut buf: [u8; 4] = [0; 4];
-    BufReader::new(std::fs::File::open(path).unwrap())
-        .read_exact(&mut buf)
-        .expect("could not read first line");
+    match BufReader::new(std::fs::File::open(path).unwrap()).read_exact(&mut buf) {
+        _ => {}
+    }
     (*String::from_utf8_lossy(&buf[..])).to_string()
 }
 

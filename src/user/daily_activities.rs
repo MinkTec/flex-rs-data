@@ -31,8 +31,10 @@ impl From<HashSet<ParsedDir>> for DailyActivities {
                             "%Y-%m-%d %H:%M:%S",
                         )
                         .unwrap(),
-                        data: DailyActivity::from_str(read_first_line(&file.path()).trim())
-                            .unwrap_or(DailyActivity::Other),
+                        data: DailyActivity::from_str(
+                            read_first_line(&file.path()).unwrap().trim(),
+                        )
+                        .unwrap_or(DailyActivity::Other),
                     })
                 })
                 .flatten()

@@ -149,7 +149,7 @@ where
                         data: Box::new(self.between(x.into())),
                     };
                     if r.data.height() > min_length.unwrap_or(0) {
-                        Some(dbg!(r))
+                        Some(r)
                     } else {
                         None
                     }

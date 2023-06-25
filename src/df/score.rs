@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use chrono::NaiveDateTime;
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +20,24 @@ pub struct ScoreDf(pub DataFrame);
 impl ScoreDf {
     pub fn new(df: DataFrame) -> ScoreDf {
         ScoreDf(df)
+    }
+
+    pub fn dummy() -> ScoreDf {
+        //let schema = OutputType::points.schema(None);
+        let t: Vec<NaiveDateTime> = vec![];
+        let f64: Vec<f64> = vec![];
+        let str: Vec<String> = vec![];
+
+        ScoreDf(
+            DataFrame::new(vec![
+                Series::new("t", t),
+                Series::new("score", f64.clone()),
+                Series::new("posture", f64.clone()),
+                Series::new("movement", f64),
+                Series::new("activity", str),
+            ])
+            .unwrap(),
+        )
     }
 
     fn convert_t_to_time(&mut self) {
