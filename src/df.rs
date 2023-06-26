@@ -80,8 +80,8 @@ impl ColNameGenerator {
     }
 }
 
-fn read_arrow_file(_path: &PathBuf) -> PolarsResult<DataFrame> {
-    todo!("arrow format support is not yet implemented");
+fn read_arrow_file(path: &PathBuf) -> PolarsResult<DataFrame> {
+    IpcReader::new(&mut std::fs::File::open(path).unwrap()).finish()
 }
 
 fn read_parquet_file(path: &PathBuf) -> PolarsResult<DataFrame> {
