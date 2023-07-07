@@ -67,18 +67,22 @@ impl FromStr for ParsedDir {
     type Err = ParseFlexDataDirNameError;
 
     fn from_str(path: &str) -> Result<ParsedDir, ParseFlexDataDirNameError> {
-        #[cfg(target_os = "windows")]
-        let mut path: String = path.into();
-        #[cfg(target_os = "windows")]
-        path.clone()
-            .match_indices("_")
-            .into_iter()
-            .skip(1)
-            .take(2)
-            .map(|x| x.0)
-            .for_each(|x| path.replace_range(x..=x, ":"));
-        #[cfg(target_os = "windows")]
-        let path = path.as_str();
+
+        let og_path = path.to_string().clone();
+
+         let path = if !path.contains(':') {
+            let mut path: String = path.into();
+            path.clone()
+                .match_indices("_")
+                .into_iter()
+                .skip(1)
+                .take(2)
+                .map(|x| x.0)
+                .for_each(|x| path.replace_range(x..=x, ":"));
+              path.to_string()
+        } else {
+            path.to_string()
+        };
 
         #[cfg(not(target_os = "windows"))]
         let split_char = "/";
@@ -114,7 +118,7 @@ impl FromStr for ParsedDir {
         };
 
         Ok(ParsedDir {
-            path: path.into(),
+            path: og_path.into(),
             uuid,
             initial_app_start,
             phone,

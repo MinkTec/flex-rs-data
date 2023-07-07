@@ -28,7 +28,11 @@ impl From<HashSet<ParsedDir>> for DailyActivities {
                                 .split_once(".")
                                 .unwrap()
                                 .0,
-                            "%Y-%m-%d %H:%M:%S",
+                            if file.file_name().to_str().unwrap().contains(":") {
+                                "%Y-%m-%d %H:%M:%S"
+                            } else {
+                                "%Y-%m-%d %H_%M_%S"
+                            }
                         )
                         .unwrap(),
                         data: DailyActivity::from_str(
